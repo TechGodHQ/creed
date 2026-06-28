@@ -1,0 +1,37 @@
+# Lefthook configuration for creed
+# https://github.com/evilmartians/lefthook
+
+pre-commit:
+  parallel: true
+  commands:
+    gitleaks:
+      tags: [security]
+      run: gitleaks protect --staged --verbose --config .gitleaks.toml
+
+    go-vet:
+      tags: [lint]
+      run: go vet ./...
+
+    gofmt:
+      tags: [lint]
+      run: |
+        if gofmt -l . | grep -q .; then
+          echo "Files need gofmt:"
+          gofmt -l .
+          exit 1
+        fi
+
+    go-test:
+      tags: [test]
+      run: go test -race -count=1 ./...
+
+pre-push:
+  commands:
+    golangci-lint:
+      tags: [lint]
+      run: |
+        if command -v golangci-lint &>/dev/null; then
+          golangci-lint run ./...
+        else
+          echo "golangci-lint not installed, skipping"
+        fi
