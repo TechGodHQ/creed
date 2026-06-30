@@ -181,9 +181,14 @@ func (e *SyncEngine) syncTarget(
 // its emit paths and the available skills and configs.
 //
 // Directory emit paths (ending in "/") receive individual skill files.
-// File emit paths receive the aggregated content of all config files.
+// The first file emit path receives the aggregated content of all config
+// files (the "main context file" for the target). Additional file paths
+// are skipped — targets with multiple file paths (e.g., aider's
+// .aider.conf.yml + CONVENTIONS.md) need per-path content semantics that
+// the current generic engine does not yet support.
 func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain.ConfigFile) []ports.EmittedFile {
 	var files []ports.EmittedFile
+	filePathSeen := false
 
 	for _, emitPath := range target.EmitPaths("") {
 		if isDirPath(emitPath) {
@@ -194,8 +199,9 @@ func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain
 					Content: skill.Content,
 				})
 			}
-		} else {
-			// File: aggregate all config content into a single file.
+		} else if !filePathSeen {
+			// First file path: aggregate all config content into this file.
+			filePathSeen = true
 			content := aggregateConfigs(configs)
 			if len(content) > 0 {
 				files = append(files, ports.EmittedFile{
@@ -204,6 +210,7 @@ func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain
 				})
 			}
 		}
+		// Additional file paths are intentionally skipped (see doc comment).
 	}
 
 	return files
@@ -238,6 +245,9 @@ func readAllSkills(ctx context.Context, source ports.SourceReader, manifest *dom
 		if err != nil {
 			return nil, fmt.Errorf("skill %q: %w", entry.Name, err)
 		}
+		if skill == nil {
+			return nil, fmt.Errorf("skill %q: source returned nil", entry.Name)
+		}
 		skills = append(skills, *skill)
 	}
 	return skills, nil
@@ -250,6 +260,9 @@ func readAllConfigs(ctx context.Context, source ports.SourceReader, manifest *do
 		config, err := source.ReadConfig(ctx, entry.Name)
 		if err != nil {
 			return nil, fmt.Errorf("config %q: %w", entry.Name, err)
+		}
+		if config == nil {
+			return nil, fmt.Errorf("config %q: source returned nil", entry.Name)
 		}
 		configs = append(configs, *config)
 	}

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/techgodhq/creed/internal/adapters/localfs"
 	"github.com/techgodhq/creed/internal/domain"
 	"github.com/techgodhq/creed/internal/ports"
 )
@@ -205,7 +206,7 @@ func TestSync_Idempotent_SecondRunSkipsAll(t *testing.T) {
 	tmpDir := t.TempDir()
 
 	// Use the real LocalFS emitter to test actual skip-on-identical behavior.
-	emitter := newLocalFSEmitter(t, tmpDir)
+	emitter := localfs.NewEmitter(tmpDir)
 	engine := NewSyncEngine(src, emitter)
 
 	// First sync: all files written.
@@ -236,7 +237,7 @@ func TestSync_Idempotent_SecondRunSkipsAll(t *testing.T) {
 func TestSync_DryRun_NoFilesWritten(t *testing.T) {
 	src := newTestSource()
 	tmpDir := t.TempDir()
-	emitter := newLocalFSEmitter(t, tmpDir)
+	emitter := localfs.NewEmitter(tmpDir)
 	engine := NewSyncEngine(src, emitter)
 
 	result, err := engine.Sync(context.Background(), SyncOptions{Target: "claude", DryRun: true})
@@ -267,7 +268,7 @@ func TestSync_DryRun_NoFilesWritten(t *testing.T) {
 func TestSync_Force_OverwritesIdenticalFiles(t *testing.T) {
 	src := newTestSource()
 	tmpDir := t.TempDir()
-	emitter := newLocalFSEmitter(t, tmpDir)
+	emitter := localfs.NewEmitter(tmpDir)
 	engine := NewSyncEngine(src, emitter)
 
 	// First sync to populate files.
@@ -341,7 +342,7 @@ func TestSync_EmptyManifestSkills(t *testing.T) {
 	src.skills = nil
 
 	tmpDir := t.TempDir()
-	emitter := newLocalFSEmitter(t, tmpDir)
+	emitter := localfs.NewEmitter(tmpDir)
 	engine := NewSyncEngine(src, emitter)
 
 	// Claude: CLAUDE.md gets 1 config, .claude/skills/ gets 0 skills.
@@ -363,7 +364,7 @@ func TestSync_EmptyManifestConfigs(t *testing.T) {
 	src.configs = nil
 
 	tmpDir := t.TempDir()
-	emitter := newLocalFSEmitter(t, tmpDir)
+	emitter := localfs.NewEmitter(tmpDir)
 	engine := NewSyncEngine(src, emitter)
 
 	// Cursor has only directory paths — no file paths, so no config aggregation.
@@ -445,6 +446,43 @@ func TestAggregateConfigs_EmptyReturnsNil(t *testing.T) {
 	}
 }
 
+func TestSync_DisabledTargetExplicitlyRequested(t *testing.T) {
+	src := newTestSource()
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	// codex is disabled in the manifest, but an explicit Target request
+	// overrides the enabled check (documented in SyncOptions.Target).
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "codex"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Targets) != 1 {
+		t.Fatalf("expected 1 target result, got %d", len(result.Targets))
+	}
+	if result.Targets[0].Target != "codex" {
+		t.Errorf("expected target 'codex', got %q", result.Targets[0].Target)
+	}
+}
+
+func TestPrepareFiles_AiderOnlyFirstFilePathGetsConfigs(t *testing.T) {
+	// aider has two file paths: .aider.conf.yml + CONVENTIONS.md.
+	// Only the first should receive aggregated config content.
+	target, _ := domain.LookupTarget("aider")
+	configs := []domain.ConfigFile{
+		{Name: "ctx", Content: []byte("project context")},
+	}
+	files := prepareFiles(target, nil, configs)
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file (first path only), got %d", len(files))
+	}
+	if files[0].Path != ".aider.conf.yml" {
+		t.Errorf("expected .aider.conf.yml, got %q", files[0].Path)
+	}
+}
+
 // --- Helpers ---
 
 func findTargetResult(t *testing.T, result *SyncResult, name string) TargetResult {
@@ -461,48 +499,4 @@ func findTargetResult(t *testing.T, result *SyncResult, name string) TargetResul
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
-}
-
-// newLocalFSEmitter creates a real LocalFS emitter for integration-style tests.
-// We import the adapter directly to test actual skip-on-identical behavior.
-func newLocalFSEmitter(t *testing.T, baseDir string) ports.TargetEmitter {
-	t.Helper()
-	emitter := &fsEmitterAdapter{baseDir: baseDir}
-	return emitter
-}
-
-// fsEmitterAdapter wraps the real LocalFS emitter behavior for tests
-// without importing the adapters package (which would create an import cycle
-// if adapters imported usecase — they don't, but keeping tests self-contained).
-type fsEmitterAdapter struct {
-	baseDir string
-}
-
-func (e *fsEmitterAdapter) Emit(_ context.Context, target domain.Target, files []ports.EmittedFile) ([]ports.EmitResult, error) {
-	results := make([]ports.EmitResult, 0, len(files))
-	for _, f := range files {
-		fullPath := filepath.Join(e.baseDir, f.Path)
-		if existing, err := os.ReadFile(fullPath); err == nil && string(existing) == string(f.Content) {
-			results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusSkipped})
-			continue
-		}
-		dir := filepath.Dir(fullPath)
-		if err := os.MkdirAll(dir, 0o755); err != nil {
-			results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusError, Error: err})
-			continue
-		}
-		if err := os.WriteFile(fullPath, f.Content, 0o644); err != nil {
-			results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusError, Error: err})
-			continue
-		}
-		results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusWritten})
-	}
-	return results, nil
-}
-
-func (e *fsEmitterAdapter) Clean(_ context.Context, target domain.Target) error {
-	for _, relPath := range target.EmitPaths("") {
-		_ = os.RemoveAll(filepath.Join(e.baseDir, relPath))
-	}
-	return nil
 }

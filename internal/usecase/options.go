@@ -8,8 +8,12 @@ type SyncOptions struct {
 	// in the manifest, regardless of its enabled state).
 	Target string
 
-	// DryRun, when true, reports what would change without writing
-	// any files to disk. Files are reported with status "would_write".
+	// DryRun, when true, reports the candidate file set that would be
+	// emitted without writing anything to disk. Files are reported with
+	// status "would_write". Note: dry-run reports all candidate files,
+	// not the delta — files that are already up-to-date and would be
+	// skipped on a real run are still reported as "would_write" in v1.
+	// True delta reporting would require a preview/diff port method.
 	DryRun bool
 
 	// Force, when true, causes identical files to be overwritten
