@@ -52,23 +52,23 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Do:** clone via go-git to temp root, expose `Read*` methods by delegating to normalized local copy.
   - **Verify:** first-call clone works and methods read manifest/skills from repo path.
 
-- [ ] **T9: Add commit-cache behavior for GitRemote** *(~1h 30m)*
+- [x] **T9: Add commit-cache behavior for GitRemote** *(~1h 30m)*
   - **Files:** `internal/adapters/gitremote/source.go`
   - **Do:** store/read last remote HEAD locally to short-circuit redundant clones/fetches when unchanged.
   - **Verify:** repeated read on unchanged HEAD avoids clone path (assert via test hooks / call counters).
 
 ### 4) Target-emitter capability (`target-emitter`)
-- [ ] **T10: Define emitter port & file DTOs** *(~45m)*
+- [x] **T10: Define emitter port & file DTOs** *(~45m)*
   - **Files:** `internal/ports/emitter.go`
   - **Do:** define `EmittedFile`, `EmitResult`, `TargetEmitter` with `Emit` and `Clean`.
   - **Verify:** package compiles and interface imports only standard abstractions.
 
-- [ ] **T11: Implement LocalFS emitter adapter** *(~2h)*
+- [x] **T11: Implement LocalFS emitter adapter** *(~2h)*
   - **Files:** `internal/adapters/localfs/emitter.go`
   - **Do:** implement file writes, mkdir-all behavior, per-file status (`written/skipped/error`), and clean function.
   - **Verify:** tests for nested dir creation, identical-content skip, overwrite on change, clean removes expected target files.
 
-- [ ] **T12: Migrate target registry usage to domain/ports contracts** *(~1h)*
+- [x] **T12: Migrate target registry usage to domain/ports contracts** *(~1h)*
   - **Files:** `internal/adapters/localfs/*`, `internal/usecase`, command layer callers
   - **Do:** remove direct dependency on old `internal/target` package from active flow.
   - **Verify:** `go test ./...` with `internal/target` package either fully removed from runtime or left as thin compatibility alias only.
