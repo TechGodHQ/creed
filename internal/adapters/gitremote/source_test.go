@@ -150,6 +150,146 @@ func TestGitRemoteCachedSHA(t *testing.T) {
 	}
 }
 
+func TestGitRemoteCommitCacheHit(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+
+	bareURL := createBareRepo(t)
+	cacheDir := t.TempDir()
+
+	// First source: should clone.
+	src1 := NewSourceWithCache(bareURL, "", cacheDir)
+	if _, err := src1.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("first ReadManifest error: %v", err)
+	}
+	if src1.CloneCount() != 1 {
+		t.Errorf("first source: expected CloneCount 1, got %d", src1.CloneCount())
+	}
+	if src1.CachedSHA() == "" {
+		t.Fatal("first source: expected non-empty SHA after clone")
+	}
+
+	// Second source with same cache dir: should reuse cached clone (no new clone).
+	src2 := NewSourceWithCache(bareURL, "", cacheDir)
+	if _, err := src2.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("second ReadManifest error: %v", err)
+	}
+	if src2.CloneCount() != 0 {
+		t.Errorf("second source: expected CloneCount 0 (cache hit), got %d", src2.CloneCount())
+	}
+	if src2.CachedSHA() != src1.CachedSHA() {
+		t.Errorf("SHA mismatch: src1=%s, src2=%s", src1.CachedSHA(), src2.CachedSHA())
+	}
+
+	// Verify the data is readable from the cached clone.
+	m, err := src2.ReadManifest(context.Background())
+	if err != nil {
+		t.Fatalf("ReadManifest from cached clone error: %v", err)
+	}
+	if m.Version != 1 {
+		t.Errorf("expected Version 1, got %d", m.Version)
+	}
+}
+
+func TestGitRemoteCommitCacheMissOnChangedRemote(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+
+	bareURL := createBareRepo(t)
+	cacheDir := t.TempDir()
+
+	// First clone.
+	src1 := NewSourceWithCache(bareURL, "", cacheDir)
+	if _, err := src1.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("first ReadManifest error: %v", err)
+	}
+	if src1.CloneCount() != 1 {
+		t.Fatalf("expected CloneCount 1, got %d", src1.CloneCount())
+	}
+	firstSHA := src1.CachedSHA()
+
+	// Add a new commit to the remote repo so the HEAD changes.
+	addCommitToBareRepo(t, bareURL)
+
+	// Second source: remote HEAD changed, so cache should be invalidated.
+	src2 := NewSourceWithCache(bareURL, "", cacheDir)
+	if _, err := src2.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("second ReadManifest error: %v", err)
+	}
+	if src2.CloneCount() != 1 {
+		t.Errorf("expected CloneCount 1 (re-clone after cache miss), got %d", src2.CloneCount())
+	}
+	if src2.CachedSHA() == firstSHA {
+		t.Error("expected different SHA after remote change")
+	}
+}
+
+func TestGitRemoteNoCacheAlwaysClones(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+
+	bareURL := createBareRepo(t)
+
+	// Without cache, each source clones fresh.
+	src1 := NewSource(bareURL, "")
+	defer src1.Cleanup()
+	if _, err := src1.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("first ReadManifest error: %v", err)
+	}
+	if src1.CloneCount() != 1 {
+		t.Errorf("first source: expected CloneCount 1, got %d", src1.CloneCount())
+	}
+
+	// Second source without cache — no persistence, must clone again.
+	src2 := NewSource(bareURL, "")
+	defer src2.Cleanup()
+	if _, err := src2.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("second ReadManifest error: %v", err)
+	}
+	if src2.CloneCount() != 1 {
+		t.Errorf("second source: expected CloneCount 1 (no cache), got %d", src2.CloneCount())
+	}
+}
+
+// addCommitToBareRepo adds a new commit to the working tree and pushes
+// to the bare repo, changing the remote HEAD SHA.
+func addCommitToBareRepo(t *testing.T, bareURL string) {
+	t.Helper()
+	workDir := t.TempDir()
+
+	// Clone the bare repo, add a file, commit, push back.
+	for _, args := range [][]string{
+		{"git", "clone", bareURL, workDir},
+		{"git", "-C", workDir, "config", "user.email", "test@test.com"},
+		{"git", "-C", workDir, "config", "user.name", "Test"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("command %v failed: %v\n%s", args, err, out)
+		}
+	}
+
+	// Add a new file.
+	newFile := filepath.Join(workDir, "CHANGELOG.md")
+	if err := os.WriteFile(newFile, []byte("# Changelog\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	for _, args := range [][]string{
+		{"git", "-C", workDir, "add", "-A"},
+		{"git", "-C", workDir, "commit", "-m", "add changelog"},
+		{"git", "-C", workDir, "push", "origin", "HEAD"},
+	} {
+		cmd := exec.Command(args[0], args[1:]...)
+		if out, err := cmd.CombinedOutput(); err != nil {
+			t.Fatalf("command %v failed: %v\n%s", args, err, out)
+		}
+	}
+}
+
 func TestInjectToken(t *testing.T) {
 	tests := []struct {
 		name    string
