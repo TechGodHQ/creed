@@ -240,7 +240,7 @@ func (s *Source) tryCache(ctx context.Context) error {
 	}
 
 	if remoteSHA != entry.SHA {
-		return fmt.Errorf("remote HEAD changed (was %s, now %s)", entry.SHA[:8], remoteSHA[:8])
+		return fmt.Errorf("remote HEAD changed (was %s, now %s)", shortSHA(entry.SHA), shortSHA(remoteSHA))
 	}
 
 	// Cache hit — reuse the existing clone directory.
@@ -376,6 +376,16 @@ func (s *Source) ListConfigs(ctx context.Context) ([]domain.ConfigInfo, error) {
 		return nil, err
 	}
 	return s.localSource.ListConfigs(ctx)
+}
+
+// shortSHA returns the first 8 characters of a SHA string, or the full
+// string if it's shorter than 8 characters. Safe for use on potentially
+// truncated or corrupted cache data.
+func shortSHA(s string) string {
+	if len(s) > 8 {
+		return s[:8]
+	}
+	return s
 }
 
 // injectToken injects an authentication token into an HTTPS git URL.

@@ -76,6 +76,19 @@ func (e *Emitter) emitFile(f ports.EmittedFile) ports.EmitResult {
 		}
 	}
 
+	// Ensure the file is world-readable (0644), matching typical source files.
+	// os.CreateTemp creates files with mode 0600, which would make synced
+	// files unreadable by other users, CI runners, or Docker containers.
+	if err := os.Chmod(tmp.Name(), 0644); err != nil {
+		tmp.Close()
+		os.Remove(tmp.Name())
+		return ports.EmitResult{
+			Path:   f.Path,
+			Status: ports.EmitStatusError,
+			Error:  fmt.Errorf("chmod temp file: %w", err),
+		}
+	}
+
 	// Write content to temp file.
 	if _, err := tmp.Write(f.Content); err != nil {
 		tmp.Close()
@@ -114,6 +127,9 @@ func (e *Emitter) emitFile(f ports.EmittedFile) ports.EmitResult {
 // Clean removes all files and directories that the target would emit.
 // It uses the target's EmitPaths to determine what to remove.
 func (e *Emitter) Clean(ctx context.Context, target domain.Target) error {
+	if target.EmitPaths == nil {
+		return nil
+	}
 	for _, relPath := range target.EmitPaths("") {
 		fullPath := filepath.Join(e.baseDir, relPath)
 		// RemoveAll handles both files and directories gracefully.
