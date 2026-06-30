@@ -196,8 +196,14 @@ func (s *Implementation) Pull(ctx context.Context, remoteURL string) error {
 		defer source.Cleanup()
 	}
 	engine := usecase.NewSyncEngine(source, localfs.NewEmitter(s.root))
-	_, err := engine.Sync(ctx, usecase.SyncOptions{})
-	return err
+	result, err := engine.Sync(ctx, usecase.SyncOptions{})
+	if err != nil {
+		return err
+	}
+	if result.HasErrors() {
+		return fmt.Errorf("pull sync completed with target errors")
+	}
+	return nil
 }
 
 // Push publishes local .creed source changes to a git remote using the system
@@ -225,13 +231,16 @@ func (s *Implementation) Push(ctx context.Context, remoteURL string) error {
 		return fmt.Errorf("create push workspace: %w", err)
 	}
 	defer os.RemoveAll(tmpDir)
+	if err := os.RemoveAll(tmpDir); err != nil {
+		return fmt.Errorf("clear push workspace: %w", err)
+	}
+	if err := git(ctx, "", "clone", remoteURL, tmpDir); err != nil {
+		return err
+	}
+	if err := os.RemoveAll(filepath.Join(tmpDir, ".creed")); err != nil {
+		return fmt.Errorf("remove existing creed source: %w", err)
+	}
 	if err := copyDir(s.creedDir(), filepath.Join(tmpDir, ".creed")); err != nil {
-		return err
-	}
-	if err := git(ctx, tmpDir, "init"); err != nil {
-		return err
-	}
-	if err := ensureRemote(ctx, tmpDir, remoteURL); err != nil {
 		return err
 	}
 	if err := git(ctx, tmpDir, "add", ".creed"); err != nil {
@@ -243,27 +252,39 @@ func (s *Implementation) Push(ctx context.Context, remoteURL string) error {
 	if err := git(ctx, tmpDir, "-c", "user.name=Creed", "-c", "user.email=creed@techgodhq.dev", "commit", "-m", "sync creed source"); err != nil {
 		return err
 	}
-	if err := git(ctx, tmpDir, "push", "origin", "HEAD:main"); err != nil {
+	branch, err := gitOutput(ctx, tmpDir, "branch", "--show-current")
+	if err != nil {
+		return err
+	}
+	if branch == "" {
+		branch = "main"
+	}
+	if err := git(ctx, tmpDir, "push", "origin", "HEAD:"+branch); err != nil {
 		return err
 	}
 	return nil
 }
 
-func ensureRemote(ctx context.Context, dir, remoteURL string) error {
-	if err := git(ctx, dir, "remote", "get-url", "origin"); err != nil {
-		return git(ctx, dir, "remote", "add", "origin", remoteURL)
-	}
-	return git(ctx, dir, "remote", "set-url", "origin", remoteURL)
-}
-
 func git(ctx context.Context, dir string, args ...string) error {
 	cmd := exec.CommandContext(ctx, "git", args...)
-	cmd.Dir = dir
+	if dir != "" {
+		cmd.Dir = dir
+	}
 	output, err := cmd.CombinedOutput()
 	if err != nil {
 		return fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
 	}
 	return nil
+}
+
+func gitOutput(ctx context.Context, dir string, args ...string) (string, error) {
+	cmd := exec.CommandContext(ctx, "git", args...)
+	cmd.Dir = dir
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		return "", fmt.Errorf("git %s: %w: %s", strings.Join(args, " "), err, strings.TrimSpace(string(output)))
+	}
+	return strings.TrimSpace(string(output)), nil
 }
 
 func copyDir(src, dst string) error {

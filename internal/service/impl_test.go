@@ -203,6 +203,13 @@ func TestPushPublishesCreedDirToGitRemote(t *testing.T) {
 	if err := svc.Push(ctx, remote); err != nil {
 		t.Fatalf("Push() error = %v", err)
 	}
+	if err := svc.AddSkill(ctx, "review", "skills/review.md"); err != nil {
+		t.Fatalf("AddSkill() error = %v", err)
+	}
+	writeSkill(t, root, "review", "# Review\n")
+	if err := svc.Push(ctx, remote); err != nil {
+		t.Fatalf("Push(second) error = %v", err)
+	}
 	verifyDir := filepath.Join(t.TempDir(), "verify")
 	clone := exec.Command("git", "clone", remote, verifyDir)
 	if output, err := clone.CombinedOutput(); err != nil {
@@ -210,6 +217,9 @@ func TestPushPublishesCreedDirToGitRemote(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(verifyDir, ".creed", "manifest.yaml")); err != nil {
 		t.Fatalf("pushed manifest missing: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(verifyDir, ".creed", "skills", "review.md")); got != "# Review\n" {
+		t.Fatalf("pushed skill = %q, want review skill", got)
 	}
 }
 
