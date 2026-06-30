@@ -56,6 +56,8 @@ func NewSource(root string) *Source {
 
 // newSourceWithDir creates a LocalFS source reader with an explicit creed directory.
 // Used internally and by GitRemote to read from a cloned repo.
+//
+//nolint:unused // consumed by gitremote adapter in stacked PR #2
 func newSourceWithDir(creedDir string) *Source {
 	return &Source{
 		creedDir: creedDir,
@@ -140,10 +142,7 @@ func (s *Source) ListSkills(ctx context.Context) ([]domain.SkillInfo, error) {
 
 	skills := make([]domain.SkillInfo, 0, len(manifest.Skills))
 	for _, entry := range manifest.Skills {
-		skills = append(skills, domain.SkillInfo{
-			Name: entry.Name,
-			Path: entry.Path,
-		})
+		skills = append(skills, domain.SkillInfo(entry))
 	}
 	return skills, nil
 }
@@ -182,10 +181,7 @@ func (s *Source) ListConfigs(ctx context.Context) ([]domain.ConfigInfo, error) {
 
 	configs := make([]domain.ConfigInfo, 0, len(manifest.Configs))
 	for _, entry := range manifest.Configs {
-		configs = append(configs, domain.ConfigInfo{
-			Name: entry.Name,
-			Path: entry.Path,
-		})
+		configs = append(configs, domain.ConfigInfo(entry))
 	}
 	return configs, nil
 }
