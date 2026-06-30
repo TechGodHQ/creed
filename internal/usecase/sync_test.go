@@ -1,0 +1,502 @@
+package usecase
+
+import (
+	"context"
+	"errors"
+	"os"
+	"path/filepath"
+	"testing"
+
+	"github.com/techgodhq/creed/internal/adapters/localfs"
+	"github.com/techgodhq/creed/internal/domain"
+	"github.com/techgodhq/creed/internal/ports"
+)
+
+// --- Mock SourceReader ---
+
+type mockSource struct {
+	manifest *domain.Manifest
+	skills   map[string]*domain.Skill
+	configs  map[string]*domain.ConfigFile
+}
+
+func (m *mockSource) ReadManifest(_ context.Context) (*domain.Manifest, error) {
+	if m.manifest == nil {
+		return nil, errors.New("manifest not found")
+	}
+	return m.manifest, nil
+}
+
+func (m *mockSource) ReadSkill(_ context.Context, name string) (*domain.Skill, error) {
+	s, ok := m.skills[name]
+	if !ok {
+		return nil, errors.New("skill not found: " + name)
+	}
+	return s, nil
+}
+
+func (m *mockSource) ListSkills(_ context.Context) ([]domain.SkillInfo, error) {
+	skills := make([]domain.SkillInfo, 0, len(m.skills))
+	for _, s := range m.skills {
+		skills = append(skills, domain.SkillInfo{Name: s.Name, Path: s.Path})
+	}
+	return skills, nil
+}
+
+func (m *mockSource) ReadConfig(_ context.Context, name string) (*domain.ConfigFile, error) {
+	c, ok := m.configs[name]
+	if !ok {
+		return nil, errors.New("config not found: " + name)
+	}
+	return c, nil
+}
+
+func (m *mockSource) ListConfigs(_ context.Context) ([]domain.ConfigInfo, error) {
+	configs := make([]domain.ConfigInfo, 0, len(m.configs))
+	for _, c := range m.configs {
+		configs = append(configs, domain.ConfigInfo{Name: c.Name, Path: c.Path})
+	}
+	return configs, nil
+}
+
+// --- Mock TargetEmitter (for failure injection) ---
+
+type mockEmitter struct {
+	// failOnTarget causes Emit to return an error for the named target.
+	failOnTarget string
+	// recorded tracks all emit calls for inspection.
+	recorded []string
+}
+
+func (m *mockEmitter) Emit(_ context.Context, target domain.Target, files []ports.EmittedFile) ([]ports.EmitResult, error) {
+	if target.Name == m.failOnTarget {
+		return nil, errors.New("simulated emit failure for " + target.Name)
+	}
+	m.recorded = append(m.recorded, target.Name)
+	results := make([]ports.EmitResult, 0, len(files))
+	for _, f := range files {
+		results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusWritten})
+	}
+	return results, nil
+}
+
+func (m *mockEmitter) Clean(_ context.Context, _ domain.Target) error {
+	return nil
+}
+
+// --- Test Helpers ---
+
+func newTestSource() *mockSource {
+	return &mockSource{
+		manifest: &domain.Manifest{
+			Version: 1,
+			Source:  domain.SourceConfig{Type: "local", Path: ".creed"},
+			Targets: []domain.TargetConfig{
+				{Name: "claude", Enabled: true},
+				{Name: "cursor", Enabled: true},
+				{Name: "codex", Enabled: false},
+			},
+			Skills: []domain.SkillEntry{
+				{Name: "code-review", Path: "skills/code-review.md"},
+				{Name: "testing", Path: "skills/testing.md"},
+				{Name: "refactor", Path: "skills/refactor.md"},
+			},
+			Configs: []domain.ConfigEntry{
+				{Name: "project-context", Path: "config/project-context.md"},
+			},
+		},
+		skills: map[string]*domain.Skill{
+			"code-review": {Name: "code-review", Path: "skills/code-review.md", Content: []byte("# Code Review\n\nReview code carefully.")},
+			"testing":     {Name: "testing", Path: "skills/testing.md", Content: []byte("# Testing\n\nWrite tests first.")},
+			"refactor":    {Name: "refactor", Path: "skills/refactor.md", Content: []byte("# Refactor\n\nKeep it clean.")},
+		},
+		configs: map[string]*domain.ConfigFile{
+			"project-context": {Name: "project-context", Path: "config/project-context.md", Content: []byte("# Project Context\n\nThis is a creed project.")},
+		},
+	}
+}
+
+// --- Tests ---
+
+func TestSync_EmitsAllSkillsToEnabledTargets(t *testing.T) {
+	src := newTestSource()
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// Should sync claude and cursor (both enabled), not codex (disabled).
+	if len(result.Targets) != 2 {
+		t.Fatalf("expected 2 target results, got %d", len(result.Targets))
+	}
+
+	// Claude has paths ["CLAUDE.md", ".claude/skills/"]:
+	//   CLAUDE.md = 1 config file, .claude/skills/ = 3 skill files = 4 files total.
+	claude := findTargetResult(t, result, "claude")
+	if claude.FilesWritten != 4 {
+		t.Errorf("claude: expected 4 files written, got %d", claude.FilesWritten)
+	}
+
+	// Cursor has path [".cursor/rules/"]:
+	//   .cursor/rules/ = 3 skill files = 3 files total (no file paths for configs).
+	cursor := findTargetResult(t, result, "cursor")
+	if cursor.FilesWritten != 3 {
+		t.Errorf("cursor: expected 3 files written, got %d", cursor.FilesWritten)
+	}
+}
+
+func TestSync_SkipsDisabledTargets(t *testing.T) {
+	src := newTestSource()
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	for _, tr := range result.Targets {
+		if tr.Target == "codex" {
+			t.Error("disabled target 'codex' should not appear in results")
+		}
+	}
+}
+
+func TestSync_SpecificTargetOnly(t *testing.T) {
+	src := newTestSource()
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Targets) != 1 {
+		t.Fatalf("expected 1 target result, got %d", len(result.Targets))
+	}
+	if result.Targets[0].Target != "claude" {
+		t.Errorf("expected target 'claude', got %q", result.Targets[0].Target)
+	}
+
+	// Cursor should NOT have been emitted to.
+	for _, name := range emitter.recorded {
+		if name == "cursor" {
+			t.Error("cursor should not have been emitted to when targeting claude")
+		}
+	}
+}
+
+func TestSync_TargetNotFoundInManifest(t *testing.T) {
+	src := newTestSource()
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	_, err := engine.Sync(context.Background(), SyncOptions{Target: "nonexistent"})
+	if err == nil {
+		t.Fatal("expected error for target not in manifest")
+	}
+}
+
+func TestSync_Idempotent_SecondRunSkipsAll(t *testing.T) {
+	src := newTestSource()
+	tmpDir := t.TempDir()
+
+	// Use the real LocalFS emitter to test actual skip-on-identical behavior.
+	emitter := localfs.NewEmitter(tmpDir)
+	engine := NewSyncEngine(src, emitter)
+
+	// First sync: all files written.
+	result1, err := engine.Sync(context.Background(), SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("first sync: unexpected error: %v", err)
+	}
+	if result1.TotalFilesWritten() == 0 {
+		t.Error("first sync should have written files")
+	}
+
+	// Second sync: all files skipped (identical content).
+	result2, err := engine.Sync(context.Background(), SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("second sync: unexpected error: %v", err)
+	}
+
+	written := result2.TotalFilesWritten()
+	skipped := result2.TotalFilesSkipped()
+	if written != 0 {
+		t.Errorf("second sync should write 0 files, wrote %d", written)
+	}
+	if skipped == 0 {
+		t.Error("second sync should skip files")
+	}
+}
+
+func TestSync_DryRun_NoFilesWritten(t *testing.T) {
+	src := newTestSource()
+	tmpDir := t.TempDir()
+	emitter := localfs.NewEmitter(tmpDir)
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "claude", DryRun: true})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	// All files should be reported as would_write.
+	claude := findTargetResult(t, result, "claude")
+	for _, f := range claude.Files {
+		if f.Status != StatusWouldWrite {
+			t.Errorf("dry-run file %q: expected status %q, got %q", f.Path, StatusWouldWrite, f.Status)
+		}
+	}
+	if len(claude.Files) == 0 {
+		t.Error("dry-run should report files that would be written")
+	}
+
+	// No files should exist on disk.
+	if fileExists(filepath.Join(tmpDir, "CLAUDE.md")) {
+		t.Error("dry-run should not write CLAUDE.md")
+	}
+	if fileExists(filepath.Join(tmpDir, ".claude", "skills", "code-review.md")) {
+		t.Error("dry-run should not write skill files")
+	}
+}
+
+func TestSync_Force_OverwritesIdenticalFiles(t *testing.T) {
+	src := newTestSource()
+	tmpDir := t.TempDir()
+	emitter := localfs.NewEmitter(tmpDir)
+	engine := NewSyncEngine(src, emitter)
+
+	// First sync to populate files.
+	_, err := engine.Sync(context.Background(), SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("first sync: unexpected error: %v", err)
+	}
+
+	// Second sync with Force: all files should be rewritten.
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "claude", Force: true})
+	if err != nil {
+		t.Fatalf("force sync: unexpected error: %v", err)
+	}
+
+	claude := findTargetResult(t, result, "claude")
+	if claude.FilesWritten == 0 {
+		t.Error("force sync should rewrite files (FilesWritten > 0)")
+	}
+}
+
+func TestSync_PartialFailure_ContinuesOtherTargets(t *testing.T) {
+	src := newTestSource()
+	// Mock emitter that fails on "cursor" but succeeds on "claude".
+	emitter := &mockEmitter{failOnTarget: "cursor"}
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{})
+	if err != nil {
+		t.Fatalf("sync should not return top-level error for partial failure: %v", err)
+	}
+
+	// Claude should succeed.
+	claude := findTargetResult(t, result, "claude")
+	if claude.Error != nil {
+		t.Errorf("claude should not have an error: %v", claude.Error)
+	}
+	if claude.FilesWritten == 0 {
+		t.Error("claude should have written files")
+	}
+
+	// Cursor should have an error.
+	cursor := findTargetResult(t, result, "cursor")
+	if cursor.Error == nil {
+		t.Error("cursor should have an error")
+	}
+}
+
+func TestSync_UnknownTargetInManifest(t *testing.T) {
+	src := newTestSource()
+	// Add an unknown target to the manifest.
+	src.manifest.Targets = append(src.manifest.Targets, domain.TargetConfig{
+		Name: "nonexistent-tool", Enabled: true,
+	})
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "nonexistent-tool"})
+	if err != nil {
+		t.Fatalf("should not return top-level error: %v", err)
+	}
+
+	tr := result.Targets[0]
+	if tr.Error == nil {
+		t.Error("unknown target should produce a target-level error")
+	}
+}
+
+func TestSync_EmptyManifestSkills(t *testing.T) {
+	src := newTestSource()
+	src.manifest.Skills = nil
+	src.skills = nil
+
+	tmpDir := t.TempDir()
+	emitter := localfs.NewEmitter(tmpDir)
+	engine := NewSyncEngine(src, emitter)
+
+	// Claude: CLAUDE.md gets 1 config, .claude/skills/ gets 0 skills.
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	claude := findTargetResult(t, result, "claude")
+	// Only the config file should be written (no skill files).
+	if claude.FilesWritten != 1 {
+		t.Errorf("expected 1 file written (config only), got %d", claude.FilesWritten)
+	}
+}
+
+func TestSync_EmptyManifestConfigs(t *testing.T) {
+	src := newTestSource()
+	src.manifest.Configs = nil
+	src.configs = nil
+
+	tmpDir := t.TempDir()
+	emitter := localfs.NewEmitter(tmpDir)
+	engine := NewSyncEngine(src, emitter)
+
+	// Cursor has only directory paths — no file paths, so no config aggregation.
+	// Skills still go to .cursor/rules/.
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "cursor"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	cursor := findTargetResult(t, result, "cursor")
+	if cursor.FilesWritten != 3 {
+		t.Errorf("expected 3 skill files written, got %d", cursor.FilesWritten)
+	}
+}
+
+func TestSyncResult_HasErrors(t *testing.T) {
+	r := &SyncResult{
+		Targets: []TargetResult{
+			{Target: "claude", FilesWritten: 3},
+			{Target: "cursor", Error: errors.New("boom")},
+		},
+	}
+	if !r.HasErrors() {
+		t.Error("expected HasErrors to be true")
+	}
+
+	r2 := &SyncResult{
+		Targets: []TargetResult{
+			{Target: "claude", FilesWritten: 3},
+		},
+	}
+	if r2.HasErrors() {
+		t.Error("expected HasErrors to be false")
+	}
+}
+
+func TestPrepareFiles_DirectoryGetsSkills(t *testing.T) {
+	target, _ := domain.LookupTarget("cursor") // .cursor/rules/
+	skills := []domain.Skill{
+		{Name: "alpha", Content: []byte("alpha content")},
+		{Name: "beta", Content: []byte("beta content")},
+	}
+	files := prepareFiles(target, skills, nil)
+
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
+	}
+	// Files should be in the skills directory.
+	for _, f := range files {
+		if !isDirPath(filepath.Dir(f.Path) + "/") {
+			t.Errorf("file %q should be in a directory path", f.Path)
+		}
+	}
+}
+
+func TestPrepareFiles_FilePathGetsAggregatedConfigs(t *testing.T) {
+	target, _ := domain.LookupTarget("codex") // AGENTS.md
+	configs := []domain.ConfigFile{
+		{Name: "ctx1", Content: []byte("context one")},
+		{Name: "ctx2", Content: []byte("context two")},
+	}
+	files := prepareFiles(target, nil, configs)
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file, got %d", len(files))
+	}
+	if files[0].Path != "AGENTS.md" {
+		t.Errorf("expected AGENTS.md, got %q", files[0].Path)
+	}
+	expected := "context one\n---\n\ncontext two"
+	if string(files[0].Content) != expected {
+		t.Errorf("expected aggregated content %q, got %q", expected, string(files[0].Content))
+	}
+}
+
+func TestAggregateConfigs_EmptyReturnsNil(t *testing.T) {
+	if result := aggregateConfigs(nil); result != nil {
+		t.Errorf("expected nil for empty configs, got %q", string(result))
+	}
+}
+
+func TestSync_DisabledTargetExplicitlyRequested(t *testing.T) {
+	src := newTestSource()
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	// codex is disabled in the manifest, but an explicit Target request
+	// overrides the enabled check (documented in SyncOptions.Target).
+	result, err := engine.Sync(context.Background(), SyncOptions{Target: "codex"})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+
+	if len(result.Targets) != 1 {
+		t.Fatalf("expected 1 target result, got %d", len(result.Targets))
+	}
+	if result.Targets[0].Target != "codex" {
+		t.Errorf("expected target 'codex', got %q", result.Targets[0].Target)
+	}
+}
+
+func TestPrepareFiles_AiderOnlyFirstFilePathGetsConfigs(t *testing.T) {
+	// aider has two file paths: .aider.conf.yml + CONVENTIONS.md.
+	// Only the first should receive aggregated config content.
+	target, _ := domain.LookupTarget("aider")
+	configs := []domain.ConfigFile{
+		{Name: "ctx", Content: []byte("project context")},
+	}
+	files := prepareFiles(target, nil, configs)
+
+	if len(files) != 1 {
+		t.Fatalf("expected 1 file (first path only), got %d", len(files))
+	}
+	if files[0].Path != ".aider.conf.yml" {
+		t.Errorf("expected .aider.conf.yml, got %q", files[0].Path)
+	}
+}
+
+// --- Helpers ---
+
+func findTargetResult(t *testing.T, result *SyncResult, name string) TargetResult {
+	t.Helper()
+	for _, tr := range result.Targets {
+		if tr.Target == name {
+			return tr
+		}
+	}
+	t.Fatalf("target result %q not found", name)
+	return TargetResult{}
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
