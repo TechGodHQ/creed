@@ -11,6 +11,7 @@ import (
 	"gopkg.in/yaml.v3"
 
 	"github.com/techgodhq/creed/internal/domain"
+	"github.com/techgodhq/creed/internal/ports"
 )
 
 // manifestFile is the internal YAML representation of manifest.yaml.
@@ -38,26 +39,25 @@ type targetConfigYAML struct {
 // Source reads creed data from a local filesystem directory.
 // It implements ports.SourceReader.
 type Source struct {
-	// root is the project root directory containing the .creed/ folder.
-	root string
 	// creedDir is the absolute path to the .creed/ directory.
 	creedDir string
 }
 
+// Compile-time assertion that Source implements ports.SourceReader.
+var _ ports.SourceReader = (*Source)(nil)
+
 // NewSource creates a LocalFS source reader for the given project root.
-// The creed directory is resolved as root + "/" + sourcePath (default ".creed").
+// The creed directory is resolved as root/.creed.
 func NewSource(root string) *Source {
 	return &Source{
-		root:     root,
 		creedDir: filepath.Join(root, ".creed"),
 	}
 }
 
 // newSourceWithDir creates a LocalFS source reader with an explicit creed directory.
 // Used internally and by GitRemote to read from a cloned repo.
-func newSourceWithDir(root, creedDir string) *Source {
+func newSourceWithDir(creedDir string) *Source {
 	return &Source{
-		root:     root,
 		creedDir: creedDir,
 	}
 }

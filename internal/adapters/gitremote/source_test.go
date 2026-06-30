@@ -180,15 +180,6 @@ func TestInjectToken(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			got := injectToken(tt.url, tt.token)
-			// injectToken is called with token in all cases, but for empty token
-			// the function still injects — that's fine for the unit test,
-			// but we need to handle the empty-token case.
-			// Actually, when token is empty, injectToken("https://...", "")
-			// produces "https://x-access-token:@..." which is wrong.
-			// The caller (ensureCloned) only calls injectToken when token != "".
-			if tt.token == "" {
-				return // skip empty token case
-			}
 			if got != tt.wantURL {
 				t.Errorf("injectToken(%q, %q) = %q, want %q", tt.url, tt.token, got, tt.wantURL)
 			}

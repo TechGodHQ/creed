@@ -14,7 +14,11 @@ import (
 
 	"github.com/techgodhq/creed/internal/adapters/localfs"
 	"github.com/techgodhq/creed/internal/domain"
+	"github.com/techgodhq/creed/internal/ports"
 )
+
+// Compile-time assertion that Source implements ports.SourceReader.
+var _ ports.SourceReader = (*Source)(nil)
 
 // Source reads creed data from a remote git repository.
 // It implements ports.SourceReader by cloning the repository to a temp
@@ -42,7 +46,8 @@ func NewSource(remoteURL, token string) *Source {
 }
 
 // ensureCloned clones the repository on first access. Subsequent calls
-// reuse the existing clone and update the cached SHA.
+// are no-ops — the clone and cached SHA persist for the lifetime of this
+// Source instance. (Full commit-cache refresh behavior is T9.)
 func (s *Source) ensureCloned(ctx context.Context) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -159,8 +164,11 @@ func (s *Source) ListConfigs(ctx context.Context) ([]domain.ConfigInfo, error) {
 
 // injectToken injects an authentication token into an HTTPS git URL.
 // For example: https://github.com/user/repo → https://x-access-token:TOKEN@github.com/user/repo
-// Non-HTTPS URLs are returned unchanged.
+// Non-HTTPS URLs or empty tokens are returned unchanged.
 func injectToken(rawURL, token string) string {
+	if token == "" {
+		return rawURL
+	}
 	// Only inject for HTTPS URLs.
 	const httpsPrefix = "https://"
 	if len(rawURL) <= len(httpsPrefix) || rawURL[:len(httpsPrefix)] != httpsPrefix {
