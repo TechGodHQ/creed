@@ -90,20 +90,21 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Verify:** fault-injection test confirms successful targets still return results.
 
 ### 6) Service-interface capability (`service-interface`)
-- [ ] **T16: Define Service interface and core application service implementation** *(~2h)*
+- [x] **T16: Define Service interface and core application service implementation** *(~2h)*
   - **Files:** `internal/service/service.go`, `internal/service/impl.go`
   - **Do:** define API (`Init`, `Sync`, `AddSkill`, `RemoveSkill`, `ListSkills`, `ListTargets`, `EnableTarget`, `DisableTarget`, `Pull`, `Push`), wire dependencies.
   - **Verify:** compile-time check that all methods are implemented and return typed errors.
 
-- [ ] **T17: Implement manifest/project bootstrap (`Init`, `AddSkill`, `RemoveSkill`, list/enable/disable)** *(~2h)*
+- [x] **T17: Implement manifest/project bootstrap (`Init`, `AddSkill`, `RemoveSkill`, list/enable/disable)** *(~2h)*
   - **Files:** `internal/service/impl.go`, `internal/usecase/*`, manifest IO helpers
   - **Do:** create `.creed/manifest.yaml` if missing, enforce defaults, and mutate manifest lists/target flags safely.
   - **Verify:** table tests around enabled/disabled target behavior + add/remove skill/config updates.
 
-- [ ] **T18: Implement sync option plumbing and pull/push behaviors** *(~1h 30m)*
+- [x] **T18: Implement sync option plumbing and pull/push behaviors** *(~1h 30m)*
   - **Files:** `internal/service/impl.go`, `internal/adapters/gitremote/source.go`
   - **Do:** map service methods to use cases; `Pull`/`Push` use git remote adapter and source config.
   - **Verify:** call-path tests validate delegation from service to engine/adapter.
+  - **Note:** `Pull` delegates git remote reads through the existing GitRemote source adapter. `Push` publishes `.creed/` source changes through the system git executable until a writable git port exists.
 
 ### 7) Generated surfaces (CLI/MCP) and wiring
 - [ ] **T19: Add Service interface-driven code generation** *(~2h)*

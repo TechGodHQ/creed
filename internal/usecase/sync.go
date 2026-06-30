@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"time"
@@ -49,7 +50,7 @@ func (e *SyncEngine) Sync(ctx context.Context, opts SyncOptions) (*SyncResult, e
 	}
 
 	// Resolve which targets to sync based on manifest state and options.
-	targetNames, err := resolveTargets(manifest, opts)
+	targetConfigs, err := resolveTargets(manifest, opts)
 	if err != nil {
 		return nil, err
 	}
@@ -66,52 +67,84 @@ func (e *SyncEngine) Sync(ctx context.Context, opts SyncOptions) (*SyncResult, e
 
 	// Sync each target independently. A failure on one target does not
 	// prevent the others from being processed.
-	result := &SyncResult{Targets: make([]TargetResult, 0, len(targetNames))}
-	for _, name := range targetNames {
+	result := &SyncResult{Targets: make([]TargetResult, 0, len(targetConfigs))}
+	for _, config := range targetConfigs {
 		// Respect context cancellation between targets.
 		select {
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		default:
 		}
-		result.Targets = append(result.Targets, e.syncTarget(ctx, name, skills, configs, opts))
+		result.Targets = append(result.Targets, e.syncTarget(ctx, config, skills, configs, opts))
 	}
 
 	return result, nil
 }
 
-// resolveTargets determines the set of target names to sync.
-func resolveTargets(manifest *domain.Manifest, opts SyncOptions) ([]string, error) {
+// resolveTargets determines the set of target configs to sync.
+func resolveTargets(manifest *domain.Manifest, opts SyncOptions) ([]domain.TargetConfig, error) {
 	if opts.Target != "" {
 		// A specific target was requested. It must exist in the manifest.
 		for _, tc := range manifest.Targets {
 			if tc.Name == opts.Target {
-				return []string{opts.Target}, nil
+				config := normalizeTargetConfig(tc)
+				if err := validateTargetConfig(config); err != nil {
+					return nil, err
+				}
+				return []domain.TargetConfig{config}, nil
 			}
 		}
 		return nil, fmt.Errorf("target %q not found in manifest", opts.Target)
 	}
 
 	// No specific target: sync all enabled targets, sorted for determinism.
-	names := make([]string, 0, len(manifest.Targets))
+	configs := make([]domain.TargetConfig, 0, len(manifest.Targets))
 	for _, tc := range manifest.Targets {
 		if tc.Enabled {
-			names = append(names, tc.Name)
+			config := normalizeTargetConfig(tc)
+			if err := validateTargetConfig(config); err != nil {
+				return nil, err
+			}
+			configs = append(configs, config)
 		}
 	}
-	sort.Strings(names)
-	return names, nil
+	sort.Slice(configs, func(i, j int) bool { return configs[i].Name < configs[j].Name })
+	return configs, nil
+
+}
+
+// normalizeTargetConfig applies manifest defaults to a target config.
+func normalizeTargetConfig(config domain.TargetConfig) domain.TargetConfig {
+	if config.OutputDir == "" {
+		config.OutputDir = "."
+	}
+	return config
+}
+
+func validateTargetConfig(config domain.TargetConfig) error {
+	if config.OutputDir == "" || config.OutputDir == "." {
+		return nil
+	}
+	if filepath.IsAbs(config.OutputDir) {
+		return fmt.Errorf("target %q output_dir must be relative: %s", config.Name, config.OutputDir)
+	}
+	clean := filepath.Clean(config.OutputDir)
+	if clean == ".." || strings.HasPrefix(clean, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("target %q output_dir escapes project root: %s", config.Name, config.OutputDir)
+	}
+	return nil
 }
 
 // syncTarget syncs a single target and returns its result.
 func (e *SyncEngine) syncTarget(
 	ctx context.Context,
-	name string,
+	config domain.TargetConfig,
 	skills []domain.Skill,
 	configs []domain.ConfigFile,
 	opts SyncOptions,
 ) TargetResult {
 	start := time.Now()
+	name := config.Name
 	tr := TargetResult{Target: name}
 
 	// Look up the target definition from the domain registry.
@@ -123,6 +156,7 @@ func (e *SyncEngine) syncTarget(
 	}
 
 	// Prepare the files to emit for this target.
+	target = targetWithOutputDir(target, config.OutputDir)
 	files := prepareFiles(target, skills, configs)
 
 	// Dry-run: report what would change without writing.
@@ -175,6 +209,28 @@ func (e *SyncEngine) syncTarget(
 
 	tr.Duration = time.Since(start)
 	return tr
+}
+
+// targetWithOutputDir returns a target whose emit paths are rooted under the
+// manifest-configured output directory.
+func targetWithOutputDir(target *domain.Target, outputDir string) *domain.Target {
+	if outputDir == "" || outputDir == "." {
+		return target
+	}
+	copy := *target
+	copy.EmitPaths = func(projectName string) []string {
+		paths := target.EmitPaths(projectName)
+		prefixed := make([]string, 0, len(paths))
+		for _, path := range paths {
+			joined := filepath.ToSlash(filepath.Join(outputDir, path))
+			if isDirPath(path) && !isDirPath(joined) {
+				joined += "/"
+			}
+			prefixed = append(prefixed, joined)
+		}
+		return prefixed
+	}
+	return &copy
 }
 
 // prepareFiles builds the list of files to emit for a target based on
