@@ -9,44 +9,45 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
 ## Tasks
 
 ### 1) Project foundations (dependencies / environment)
-- [ ] **T1: Add baseline dependencies and build tooling** *(~45m)*
+- [x] **T1: Add baseline dependencies and build tooling** *(~45m)*
   - **Files:** `go.mod`
   - **Do:** add required module deps for implementation (`gopkg.in/yaml.v3`, `github.com/go-git/go-git/v5`, `github.com/mark3labs/mcp-go`).
   - **Verify:** `go mod tidy && go test ./...` passes dependency resolution.
+  - **Note:** mcp-go has no imports yet (deferred to T19+) so `go mod tidy` strips it. Will be added when Service interface + MCP surface code lands.
 
-- [ ] **T2: Add `internal/codegen` scaffolding + generator entrypoint** *(~1h)*
+- [x] **T2: Add `internal/codegen` scaffolding + generator entrypoint** *(~1h)*
   - **Files:** `internal/codegen/main.go`, `internal/codegen/templates/` (as needed)
   - **Do:** create CLI entrypoint for code generation that accepts input/output paths and writes generated files.
   - **Verify:** `go run ./internal/codegen -h` shows options and returns success on `--help`.
 
 ### 2) Domain capability (`domain-model`)
-- [ ] **T3: Add zero-dependency domain types** *(~1h)*
+- [x] **T3: Add zero-dependency domain types** *(~1h)*
   - **Files:** `internal/domain/types.go`
   - **Do:** define `Skill`, `Spec`, `ConfigFile`, `Target`, `Manifest`, `SyncResult`, `SourceConfig`, plus helper info structs (`SkillInfo`, `ConfigInfo`, `TargetInfo`) and constructors/defaults (`Manifest.Version == 1`).
   - **Verify:** `go test ./internal/domain`.
 
-- [ ] **T4: Move/refactor target registry into domain types** *(~1h)*
+- [x] **T4: Move/refactor target registry into domain types** *(~1h)*
   - **Files:** `internal/domain/targets.go`, `internal/target` (deprecated removal or compatibility shim)
   - **Do:** centralize target metadata + emit-path definitions in one package, include all six targets with exact initial mappings.
   - **Verify:** unit test asserts claude emits both `CLAUDE.md` and `.claude/skills/`, and unknown target lookup returns error.
 
-- [ ] **T5: Add domain contract tests (no external imports)** *(~45m)*
+- [x] **T5: Add domain contract tests (no external imports)** *(~45m)*
   - **Files:** `internal/domain/types_test.go`
   - **Do:** add focused tests for defaults, target emit path behavior, and structural assertions.
   - **Verify:** `go test ./internal/domain`.
 
 ### 3) Source-reader capability (`source-reader`)
-- [ ] **T6: Define SourceReader port** *(~45m)*
+- [x] **T6: Define SourceReader port** *(~45m)*
   - **Files:** `internal/ports/source.go`
   - **Do:** define `SourceReader` interface with methods from spec.
   - **Verify:** `go test ./internal/ports` (compilation-only package check).
 
-- [ ] **T7: Implement LocalFS source adapter** *(~2h)*
+- [x] **T7: Implement LocalFS source adapter** *(~2h)*
   - **Files:** `internal/adapters/localfs/source.go`
   - **Do:** implement `.creed/manifest.yaml` read + list/read skill + config operations.
   - **Verify:** tests for happy path, missing manifest, malformed manifest, missing skill/config names.
 
-- [ ] **T8: Implement GitRemote source adapter (clone + cache skeleton)** *(~2h)*
+- [x] **T8: Implement GitRemote source adapter (clone + cache skeleton)** *(~2h)*
   - **Files:** `internal/adapters/gitremote/source.go`, `internal/adapters/gitremote/source_test.go`
   - **Do:** clone via go-git to temp root, expose `Read*` methods by delegating to normalized local copy.
   - **Verify:** first-call clone works and methods read manifest/skills from repo path.
