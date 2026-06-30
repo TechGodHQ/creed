@@ -74,17 +74,17 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Verify:** `go test ./...` with `internal/target` package either fully removed from runtime or left as thin compatibility alias only.
 
 ### 5) Sync-engine capability (`sync-engine`)
-- [ ] **T13: Implement SyncOptions and SyncEngine orchestration** *(~1h 45m)*
+- [x] **T13: Implement SyncOptions and SyncEngine orchestration** *(~1h 45m)*
   - **Files:** `internal/usecase/sync.go`
   - **Do:** add `SyncOptions{Target, DryRun, Force}` and main `Sync` flow: read manifest, resolve target set, collect files, emit through adapter, aggregate `SyncResult`.
   - **Verify:** unit test confirms enabled-target filtering and all-skill fanout.
 
-- [ ] **T14: Implement idempotent behavior and per-target reporting** *(~1h 30m)*
+- [x] **T14: Implement idempotent behavior and per-target reporting** *(~1h 30m)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** ensure second run reports skipped when unchanged; enforce per-target summary counts and duration fields.
   - **Verify:** explicit test with temporary files + two consecutive sync runs => second run has `FilesWritten == 0`.
 
-- [ ] **T15: Handle partial failures without aborting all targets** *(~1h 15m)*
+- [x] **T15: Handle partial failures without aborting all targets** *(~1h 15m)*
   - **Files:** `internal/usecase/sync.go`
   - **Do:** if one target emit fails, continue other targets and include error in that target result only.
   - **Verify:** fault-injection test confirms successful targets still return results.
