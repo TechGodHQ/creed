@@ -1,0 +1,24 @@
+version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+  - name: codex
+    enabled: true
+    output_dir: .
+  - name: cursor
+    enabled: true
+    output_dir: .
+skills:
+  - name: github-pr-review
+    path: skills/github-pr-review.md
+  - name: openspec-development
+    path: skills/openspec-development.md
+config:
+  - name: project
+    path: config/project.md
+  - name: development
+    path: config/development.md
