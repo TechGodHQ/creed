@@ -193,7 +193,9 @@ func (s *Implementation) Pull(ctx context.Context, remoteURL string) error {
 	if s.cacheDir != "" {
 		source = gitremote.NewSourceWithCache(remoteURL, s.token, s.cacheDir)
 	} else {
-		defer source.Cleanup()
+		defer func() {
+			_ = source.Cleanup()
+		}()
 	}
 	engine := usecase.NewSyncEngine(source, localfs.NewEmitter(s.root))
 	result, err := engine.Sync(ctx, usecase.SyncOptions{})
