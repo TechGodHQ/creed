@@ -260,19 +260,38 @@ func targetWithOutputDir(target *domain.Target, outputDir string) *domain.Target
 		return target
 	}
 	copy := *target
+	if target.Outputs != nil {
+		copy.Outputs = func(projectName string) []domain.TargetOutput {
+			outputs := target.Outputs(projectName)
+			prefixed := make([]domain.TargetOutput, 0, len(outputs))
+			for _, output := range outputs {
+				path := prefixOutputPath(outputDir, output.Path)
+				prefixed = append(prefixed, domain.TargetOutput{
+					Path:   path,
+					Kind:   output.Kind,
+					Format: output.Format,
+				})
+			}
+			return prefixed
+		}
+	}
 	copy.EmitPaths = func(projectName string) []string {
 		paths := target.EmitPaths(projectName)
 		prefixed := make([]string, 0, len(paths))
 		for _, path := range paths {
-			joined := filepath.ToSlash(filepath.Join(outputDir, path))
-			if isDirPath(path) && !isDirPath(joined) {
-				joined += "/"
-			}
-			prefixed = append(prefixed, joined)
+			prefixed = append(prefixed, prefixOutputPath(outputDir, path))
 		}
 		return prefixed
 	}
 	return &copy
+}
+
+func prefixOutputPath(outputDir, path string) string {
+	joined := filepath.ToSlash(filepath.Join(outputDir, path))
+	if isDirPath(path) && !isDirPath(joined) {
+		joined += "/"
+	}
+	return joined
 }
 
 // prepareFiles builds the list of files to emit for a target based on

@@ -36,6 +36,107 @@ func TestTargetClaudeEmitPaths(t *testing.T) {
 	}
 }
 
+func TestTargetOutputDescriptors(t *testing.T) {
+	tests := []struct {
+		name string
+		want []TargetOutput
+	}{
+		{
+			name: "claude",
+			want: []TargetOutput{
+				{Path: "CLAUDE.md", Kind: OutputKindContext, Format: "markdown"},
+				{Path: ".claude/skills/", Kind: OutputKindSkillDir, Format: "markdown"},
+			},
+		},
+		{
+			name: "cursor",
+			want: []TargetOutput{
+				{Path: ".cursor/rules/", Kind: OutputKindSkillDir, Format: "markdown"},
+			},
+		},
+		{
+			name: "codex",
+			want: []TargetOutput{
+				{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
+			},
+		},
+		{
+			name: "aider",
+			want: []TargetOutput{
+				{Path: ".aider.conf.yml", Kind: OutputKindConfig, Format: "yaml"},
+				{Path: "CONVENTIONS.md", Kind: OutputKindContext, Format: "markdown"},
+			},
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			tg, err := LookupTarget(tt.name)
+			if err != nil {
+				t.Fatalf("LookupTarget(%q) error: %v", tt.name, err)
+			}
+			outputs := tg.Outputs("myproject")
+			assertTargetOutputs(t, outputs, tt.want)
+		})
+	}
+}
+
+func TestAllTargetsExposeOutputDescriptors(t *testing.T) {
+	for _, name := range AllTargetNames() {
+		t.Run(name, func(t *testing.T) {
+			tg, err := LookupTarget(name)
+			if err != nil {
+				t.Fatalf("LookupTarget(%q) error: %v", name, err)
+			}
+			outputs := tg.Outputs("myproject")
+			if len(outputs) == 0 {
+				t.Fatalf("expected output descriptors for target %q", name)
+			}
+			for _, output := range outputs {
+				if output.Path == "" {
+					t.Fatalf("target %q has output with empty path: %#v", name, output)
+				}
+				if output.Kind == "" {
+					t.Fatalf("target %q has output with empty kind: %#v", name, output)
+				}
+			}
+		})
+	}
+}
+
+func TestEmitPathsRemainCompatibleWithOutputDescriptors(t *testing.T) {
+	for _, name := range AllTargetNames() {
+		t.Run(name, func(t *testing.T) {
+			tg, err := LookupTarget(name)
+			if err != nil {
+				t.Fatalf("LookupTarget(%q) error: %v", name, err)
+			}
+			outputs := tg.Outputs("myproject")
+			paths := tg.EmitPaths("myproject")
+			if len(paths) != len(outputs) {
+				t.Fatalf("expected %d paths, got %d", len(outputs), len(paths))
+			}
+			for i, output := range outputs {
+				if paths[i] != output.Path {
+					t.Fatalf("expected paths[%d] == %q, got %q", i, output.Path, paths[i])
+				}
+			}
+		})
+	}
+}
+
+func assertTargetOutputs(t *testing.T, got, want []TargetOutput) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %d outputs, got %d: %#v", len(want), len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("expected output[%d] == %#v, got %#v", i, want[i], got[i])
+		}
+	}
+}
+
 func TestLookupTargetUnknownReturnsError(t *testing.T) {
 	_, err := LookupTarget("nonexistent")
 	if err == nil {

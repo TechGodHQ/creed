@@ -59,9 +59,37 @@ type Target struct {
 	Name string
 	// DisplayName is the human-readable target name.
 	DisplayName string
+	// Outputs returns semantic output descriptors this target expects,
+	// given the project name.
+	Outputs func(projectName string) []TargetOutput
 	// EmitPaths returns the relative file paths this target expects,
 	// given the project name. For example: ["CLAUDE.md", ".claude/skills/"].
+	//
+	// Deprecated: use Outputs for semantic target mappings. EmitPaths is kept
+	// as a compatibility helper for existing emit-path callers.
 	EmitPaths func(projectName string) []string
+}
+
+// OutputKind describes the semantic role of a target output path.
+type OutputKind string
+
+const (
+	// OutputKindContext receives aggregated project context/config content.
+	OutputKindContext OutputKind = "context"
+	// OutputKindSkillDir receives one emitted skill file per source skill.
+	OutputKindSkillDir OutputKind = "skill_dir"
+	// OutputKindConfig receives target-specific generated configuration.
+	OutputKindConfig OutputKind = "config"
+)
+
+// TargetOutput describes a semantic output path for a target.
+type TargetOutput struct {
+	// Path is the relative file or directory path to emit.
+	Path string
+	// Kind is the semantic role this output plays for the target.
+	Kind OutputKind
+	// Format is an advisory content format label, such as markdown or yaml.
+	Format string
 }
 
 // TargetInfo is a lightweight summary of a target, used for listing and display.
