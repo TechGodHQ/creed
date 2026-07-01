@@ -124,6 +124,21 @@ func (e *Emitter) emitFile(f ports.EmittedFile) ports.EmitResult {
 	}
 }
 
+// Preview reports what Emit would do without writing to disk.
+func (e *Emitter) Preview(_ context.Context, _ domain.Target, files []ports.EmittedFile) ([]ports.EmitResult, error) {
+	results := make([]ports.EmitResult, 0, len(files))
+	for _, f := range files {
+		fullPath := filepath.Join(e.baseDir, f.Path)
+		existing, err := os.ReadFile(fullPath)
+		if err == nil && bytes.Equal(existing, f.Content) {
+			results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusSkipped})
+			continue
+		}
+		results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusWritten})
+	}
+	return results, nil
+}
+
 // Clean removes all files and directories that the target would emit.
 // It uses the target's EmitPaths to determine what to remove.
 func (e *Emitter) Clean(ctx context.Context, target domain.Target) error {

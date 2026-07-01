@@ -130,23 +130,23 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Verify:** `go test ./...` after `go generate ./...` in clean tree.
 
 ### 8) Integration, guardrails, and cleanup
-- [ ] **T23: Replace old target registry/tests and remove stale stubs** *(~1h)*
+- [x] **T23: Replace old target registry/tests and remove stale stubs** *(~1h)*
   - **Files:** `internal/target` (remove or compatibility wrapper), `internal/target/target_test.go`
   - **Do:** delete/replace stale stub command behavior (`init`/`sync` no-op), align old tests to new domain contracts.
   - **Verify:** no user-visible legacy “not yet implemented” command paths remain.
 
-- [ ] **T24: Add end-to-end sync test harness** *(~2h)*
+- [x] **T24: Add end-to-end sync test harness** *(~2h)*
   - **Files:** `internal/usecase/sync_test.go`, `testdata/fixture-creed-project/*`
   - **Do:** full integration scenario: local `.creed` source + manifest + 2+ targets with `SyncOptions` target filter, dry-run and force modes.
   - **Verify:** one run writes, second run skips unchanged, dry-run writes no files, force rewrites identical files.
 
-- [ ] **T25: Update user docs for new behavior** *(~45m)*
+- [x] **T25: Update user docs for new behavior** *(~45m)*
   - **Files:** `README.md`, `LICENSE` checks unchanged
   - **Do:** document source model (`local`/`git`), targets, init/sync flags, and expected outputs.
   - **Verify:** docs examples match current CLI flags and manifest schema.
 
 ### 9) Delivery
-- [ ] **T26: Run full verification and finalize** *(~1h)*
+- [x] **T26: Run full verification and finalize** *(~1h)*
   - **Do:** execute:
     - `go test ./...`
     - `go vet ./...`
