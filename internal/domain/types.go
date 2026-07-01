@@ -65,8 +65,8 @@ type Target struct {
 	// EmitPaths returns the relative file paths this target expects,
 	// given the project name. For example: ["CLAUDE.md", ".claude/skills/"].
 	//
-	// Deprecated: use Outputs for semantic target mappings. EmitPaths is kept
-	// as a compatibility helper for existing emit-path callers.
+	// Use Outputs for new semantic target mappings. EmitPaths is kept as a
+	// compatibility helper for existing emit-path callers.
 	EmitPaths func(projectName string) []string
 }
 
