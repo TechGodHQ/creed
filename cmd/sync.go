@@ -43,6 +43,11 @@ var syncCmd = &cobra.Command{
 				targetResult.FilesSkipped,
 				targetResult.FilesFailed,
 			)
+			if syncDryRun {
+				for _, file := range targetResult.Files {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", file.Status, file.Path)
+				}
+			}
 		}
 		if result.HasErrors() {
 			return fmt.Errorf("sync completed with errors")

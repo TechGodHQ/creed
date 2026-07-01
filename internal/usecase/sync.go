@@ -17,6 +17,13 @@ import (
 	"github.com/techgodhq/creed/internal/ports"
 )
 
+// previewEmitter is an optional emitter capability for dry-run diff previews.
+// Implementations return EmitStatusWritten for files that would be written and
+// EmitStatusSkipped for files that are already identical.
+type previewEmitter interface {
+	Preview(ctx context.Context, target domain.Target, files []ports.EmittedFile) ([]ports.EmitResult, error)
+}
+
 // SyncEngine orchestrates synchronization from a source to one or more targets.
 // It is the core use case of creed: read context from the source, resolve
 // emit paths for each target, and write files through the emitter.
@@ -159,14 +166,11 @@ func (e *SyncEngine) syncTarget(
 	target = targetWithOutputDir(target, config.OutputDir)
 	files := prepareFiles(target, skills, configs)
 
-	// Dry-run: report what would change without writing.
+	// Dry-run: report what would change without writing. Emitters that can
+	// inspect their destination should report skipped for files that are already
+	// identical; generic emitters fall back to reporting the candidate set.
 	if opts.DryRun {
-		for _, f := range files {
-			tr.Files = append(tr.Files, FileResult{
-				Path:   f.Path,
-				Status: StatusWouldWrite,
-			})
-		}
+		tr = e.previewTarget(ctx, tr, target, files)
 		tr.Duration = time.Since(start)
 		return tr
 	}
@@ -208,6 +212,44 @@ func (e *SyncEngine) syncTarget(
 	}
 
 	tr.Duration = time.Since(start)
+	return tr
+}
+
+// previewTarget reports dry-run results without writing files.
+func (e *SyncEngine) previewTarget(
+	ctx context.Context,
+	tr TargetResult,
+	target *domain.Target,
+	files []ports.EmittedFile,
+) TargetResult {
+	previewer, ok := e.emitter.(previewEmitter)
+	if !ok {
+		for _, f := range files {
+			tr.Files = append(tr.Files, FileResult{Path: f.Path, Status: StatusWouldWrite})
+		}
+		return tr
+	}
+
+	previewResults, err := previewer.Preview(ctx, *target, files)
+	if err != nil {
+		tr.Error = fmt.Errorf("preview target %q: %w", target.Name, err)
+		return tr
+	}
+	for _, er := range previewResults {
+		status := er.Status
+		if status == ports.EmitStatusWritten {
+			status = StatusWouldWrite
+		} else if status == ports.EmitStatusError {
+			status = StatusFailed
+		}
+		tr.Files = append(tr.Files, FileResult{Path: er.Path, Status: status, Error: er.Error})
+		switch status {
+		case StatusSkipped:
+			tr.FilesSkipped++
+		case StatusFailed:
+			tr.FilesFailed++
+		}
+	}
 	return tr
 }
 
