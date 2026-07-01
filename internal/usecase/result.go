@@ -29,6 +29,9 @@ type TargetResult struct {
 	// FilesWritten is the number of files written or updated.
 	FilesWritten int
 
+	// FilesWouldWrite is the number of files that would be written in dry-run mode.
+	FilesWouldWrite int
+
 	// FilesSkipped is the number of files that were already up-to-date.
 	FilesSkipped int
 
@@ -73,6 +76,15 @@ func (r *SyncResult) TotalFilesWritten() int {
 	total := 0
 	for i := range r.Targets {
 		total += r.Targets[i].FilesWritten
+	}
+	return total
+}
+
+// TotalFilesWouldWrite returns the sum of files that would be written across all targets.
+func (r *SyncResult) TotalFilesWouldWrite() int {
+	total := 0
+	for i := range r.Targets {
+		total += r.Targets[i].FilesWouldWrite
 	}
 	return total
 }

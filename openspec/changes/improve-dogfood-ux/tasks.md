@@ -46,12 +46,12 @@ Domain descriptors first, then use-case rendering, then result/CLI reporting, th
 
 ### 3) Dry-run reporting (`dry-run-reporting`)
 
-- [ ] **T7: Add would-write counts to result model** *(~45m)*
+- [x] **T7: Add would-write counts to result model** *(~45m)*
   - **Files:** `internal/usecase/result.go`, `internal/usecase/sync.go`, tests
   - **Do:** add `FilesWouldWrite` or equivalent and increment it for dry-run candidates that would write.
   - **Verify:** dry-run unit tests assert would-write and written counts separately.
 
-- [ ] **T8: Fix CLI dry-run summary output** *(~45m)*
+- [x] **T8: Fix CLI dry-run summary output** *(~45m)*
   - **Files:** `cmd/sync.go`, command tests
   - **Do:** print `would_write` counts in dry-run summaries and keep normal summaries unchanged.
   - **Verify:** CLI test covers dry-run summary with would-write files.

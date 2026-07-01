@@ -255,6 +255,15 @@ func TestSync_DryRun_NoFilesWritten(t *testing.T) {
 	if len(claude.Files) == 0 {
 		t.Error("dry-run should report files that would be written")
 	}
+	if claude.FilesWouldWrite != len(claude.Files) {
+		t.Errorf("dry-run should count would-write files separately: got %d, want %d", claude.FilesWouldWrite, len(claude.Files))
+	}
+	if claude.FilesWritten != 0 {
+		t.Errorf("dry-run should not count would-write files as written: got %d", claude.FilesWritten)
+	}
+	if result.TotalFilesWouldWrite() != len(claude.Files) {
+		t.Errorf("total would-write count = %d, want %d", result.TotalFilesWouldWrite(), len(claude.Files))
+	}
 
 	// No files should exist on disk.
 	if fileExists(filepath.Join(tmpDir, "CLAUDE.md")) {

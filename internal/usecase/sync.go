@@ -226,6 +226,7 @@ func (e *SyncEngine) previewTarget(
 	if !ok {
 		for _, f := range files {
 			tr.Files = append(tr.Files, FileResult{Path: f.Path, Status: StatusWouldWrite})
+			tr.FilesWouldWrite++
 		}
 		return tr
 	}
@@ -244,6 +245,8 @@ func (e *SyncEngine) previewTarget(
 		}
 		tr.Files = append(tr.Files, FileResult{Path: er.Path, Status: status, Error: er.Error})
 		switch status {
+		case StatusWouldWrite:
+			tr.FilesWouldWrite++
 		case StatusSkipped:
 			tr.FilesSkipped++
 		case StatusFailed:
