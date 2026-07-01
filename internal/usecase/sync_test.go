@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/techgodhq/creed/internal/adapters/localfs"
@@ -566,6 +567,22 @@ func TestSync_AiderWithOutputDirEmitsConfigAndContext(t *testing.T) {
 	}
 	if !fileExists(filepath.Join(tmpDir, "generated", "CONVENTIONS.md")) {
 		t.Fatal("expected generated/CONVENTIONS.md to be written")
+	}
+	configContent, err := os.ReadFile(filepath.Join(tmpDir, "generated", ".aider.conf.yml"))
+	if err != nil {
+		t.Fatalf("read generated aider config: %v", err)
+	}
+	if !strings.Contains(string(configContent), "generated/CONVENTIONS.md") {
+		t.Fatalf("expected aider config to reference generated conventions file, got %q", string(configContent))
+	}
+}
+
+func TestPrepareFiles_AiderWithoutConfigsDoesNotEmitDanglingConfig(t *testing.T) {
+	target, _ := domain.LookupTarget("aider")
+	files := prepareFiles(target, nil, nil)
+
+	if len(files) != 0 {
+		t.Fatalf("expected no files without config content, got %#v", files)
 	}
 }
 

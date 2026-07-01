@@ -305,8 +305,9 @@ func prefixOutputPath(outputDir, path string) string {
 // generated configuration content.
 func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain.ConfigFile) []ports.EmittedFile {
 	var files []ports.EmittedFile
+	outputs := targetOutputs(target)
 
-	for _, output := range targetOutputs(target) {
+	for _, output := range outputs {
 		switch output.Kind {
 		case domain.OutputKindContext:
 			content := aggregateConfigs(configs)
@@ -324,7 +325,7 @@ func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain
 				})
 			}
 		case domain.OutputKindConfig:
-			content := renderTargetConfig(target, output, configs, skills)
+			content := renderTargetConfig(target, output, outputs, configs, skills)
 			if len(content) > 0 {
 				files = append(files, ports.EmittedFile{
 					Path:    output.Path,
@@ -358,9 +359,14 @@ func targetOutputs(target *domain.Target) []domain.TargetOutput {
 	return outputs
 }
 
-func renderTargetConfig(target *domain.Target, output domain.TargetOutput, _ []domain.ConfigFile, _ []domain.Skill) []byte {
-	if target.Name == "aider" && output.Kind == domain.OutputKindConfig {
-		return []byte("read:\n  - CONVENTIONS.md\n")
+func renderTargetConfig(target *domain.Target, output domain.TargetOutput, outputs []domain.TargetOutput, configs []domain.ConfigFile, _ []domain.Skill) []byte {
+	if target.Name != "aider" || output.Kind != domain.OutputKindConfig || len(configs) == 0 {
+		return nil
+	}
+	for _, candidate := range outputs {
+		if candidate.Kind == domain.OutputKindContext {
+			return []byte("read:\n  - " + candidate.Path + "\n")
+		}
 	}
 	return nil
 }
