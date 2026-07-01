@@ -579,10 +579,22 @@ func TestSync_AiderWithOutputDirEmitsConfigAndContext(t *testing.T) {
 
 func TestPrepareFiles_AiderWithoutConfigsDoesNotEmitDanglingConfig(t *testing.T) {
 	target, _ := domain.LookupTarget("aider")
-	files := prepareFiles(target, nil, nil)
+	tests := []struct {
+		name    string
+		configs []domain.ConfigFile
+	}{
+		{name: "no configs"},
+		{name: "empty config content", configs: []domain.ConfigFile{{Name: "empty"}}},
+	}
 
-	if len(files) != 0 {
-		t.Fatalf("expected no files without config content, got %#v", files)
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files := prepareFiles(target, nil, tt.configs)
+
+			if len(files) != 0 {
+				t.Fatalf("expected no files without config content, got %#v", files)
+			}
+		})
 	}
 }
 

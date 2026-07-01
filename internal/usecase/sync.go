@@ -360,7 +360,7 @@ func targetOutputs(target *domain.Target) []domain.TargetOutput {
 }
 
 func renderTargetConfig(target *domain.Target, output domain.TargetOutput, outputs []domain.TargetOutput, configs []domain.ConfigFile, _ []domain.Skill) []byte {
-	if target.Name != "aider" || output.Kind != domain.OutputKindConfig || len(configs) == 0 {
+	if target.Name != "aider" || output.Kind != domain.OutputKindConfig || len(aggregateConfigs(configs)) == 0 {
 		return nil
 	}
 	for _, candidate := range outputs {
