@@ -23,6 +23,35 @@ const (
 	manifestName     = "manifest.yaml"
 )
 
+var defaultScaffoldFiles = []scaffoldFile{
+	{
+		Path: "config/project.md",
+		Content: `# Project Context
+
+Describe what this project does, its product shape, and the decisions future agents must preserve.
+`,
+	},
+	{
+		Path: "config/development.md",
+		Content: `# Development Instructions
+
+Document build, test, lint, and release commands here.
+`,
+	},
+	{
+		Path: "skills/review.md",
+		Content: `# Review Guidelines
+
+Describe how agents should review changes in this project.
+`,
+	},
+}
+
+type scaffoldFile struct {
+	Path    string
+	Content string
+}
+
 // ErrUnsupportedOperation is returned for service methods whose contract is
 // defined but whose persistence semantics are intentionally not implemented.
 var ErrUnsupportedOperation = errors.New("unsupported operation")
@@ -58,14 +87,17 @@ func New(root string, opts ...Option) *Implementation {
 	return impl
 }
 
-// Init creates a .creed directory and manifest.yaml if they do not already
-// exist. Existing manifests are left intact.
+// Init creates a .creed directory, starter context files, and manifest.yaml if
+// they do not already exist. Existing scaffold files and manifests are left intact.
 func (s *Implementation) Init(ctx context.Context, projectName string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
 	if err := os.MkdirAll(s.creedDir(), 0755); err != nil {
 		return fmt.Errorf("create creed dir: %w", err)
+	}
+	if err := s.writeMissingScaffoldFiles(); err != nil {
+		return err
 	}
 	if _, err := os.Stat(s.manifestPath()); err == nil {
 		return nil
@@ -75,6 +107,13 @@ func (s *Implementation) Init(ctx context.Context, projectName string) error {
 
 	manifest := domain.NewManifest()
 	manifest.Targets = defaultTargets()
+	manifest.Configs = []domain.ConfigEntry{
+		{Name: "project", Path: "config/project.md"},
+		{Name: "development", Path: "config/development.md"},
+	}
+	manifest.Skills = []domain.SkillEntry{
+		{Name: "review", Path: "skills/review.md"},
+	}
 	return s.writeManifest(manifest)
 }
 
@@ -353,6 +392,24 @@ func (s *Implementation) creedDir() string { return filepath.Join(s.root, defaul
 
 func (s *Implementation) manifestPath() string { return filepath.Join(s.creedDir(), manifestName) }
 
+func (s *Implementation) writeMissingScaffoldFiles() error {
+	for _, file := range defaultScaffoldFiles {
+		path := filepath.Join(s.creedDir(), file.Path)
+		if _, err := os.Stat(path); err == nil {
+			continue
+		} else if !os.IsNotExist(err) {
+			return fmt.Errorf("stat scaffold file %s: %w", path, err)
+		}
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			return fmt.Errorf("create scaffold dir %s: %w", filepath.Dir(path), err)
+		}
+		if err := os.WriteFile(path, []byte(file.Content), 0644); err != nil {
+			return fmt.Errorf("write scaffold file %s: %w", path, err)
+		}
+	}
+	return nil
+}
+
 func (s *Implementation) readManifest() (*domain.Manifest, error) {
 	manifest, err := localfs.NewSource(s.root).ReadManifest(context.Background())
 	if err != nil {
@@ -385,9 +442,18 @@ func defaultTargets() []domain.TargetConfig {
 	names := domain.AllTargetNames()
 	configs := make([]domain.TargetConfig, 0, len(names))
 	for _, name := range names {
-		configs = append(configs, domain.TargetConfig{Name: name, Enabled: false, OutputDir: "."})
+		configs = append(configs, domain.TargetConfig{Name: name, Enabled: defaultTargetEnabled(name), OutputDir: "."})
 	}
 	return configs
+}
+
+func defaultTargetEnabled(name string) bool {
+	switch name {
+	case "claude", "codex", "cursor":
+		return true
+	default:
+		return false
+	}
 }
 
 type manifestYAML struct {

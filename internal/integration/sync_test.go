@@ -194,7 +194,8 @@ func assertAllEnabledTargetFiles(t *testing.T, root string) {
 	assertFileContains(t, filepath.Join(root, ".cursor", "rules", "testing.md"), "# Testing")
 	assertFileContains(t, filepath.Join(root, "AGENTS.md"), "# Project Context")
 	assertFileContains(t, filepath.Join(root, ".windsurfrules"), "# Project Context")
-	assertFileContains(t, filepath.Join(root, ".aider.conf.yml"), "# Project Context")
+	assertFileContains(t, filepath.Join(root, ".aider.conf.yml"), "CONVENTIONS.md")
+	assertFileContains(t, filepath.Join(root, "CONVENTIONS.md"), "# Project Context")
 }
 
 func assertFileContains(t *testing.T, path, want string) {

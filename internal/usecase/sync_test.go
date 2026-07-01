@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/techgodhq/creed/internal/adapters/localfs"
@@ -255,6 +256,15 @@ func TestSync_DryRun_NoFilesWritten(t *testing.T) {
 	if len(claude.Files) == 0 {
 		t.Error("dry-run should report files that would be written")
 	}
+	if claude.FilesWouldWrite != len(claude.Files) {
+		t.Errorf("dry-run should count would-write files separately: got %d, want %d", claude.FilesWouldWrite, len(claude.Files))
+	}
+	if claude.FilesWritten != 0 {
+		t.Errorf("dry-run should not count would-write files as written: got %d", claude.FilesWritten)
+	}
+	if result.TotalFilesWouldWrite() != len(claude.Files) {
+		t.Errorf("total would-write count = %d, want %d", result.TotalFilesWouldWrite(), len(claude.Files))
+	}
 
 	// No files should exist on disk.
 	if fileExists(filepath.Join(tmpDir, "CLAUDE.md")) {
@@ -466,24 +476,165 @@ func TestSync_DisabledTargetExplicitlyRequested(t *testing.T) {
 	}
 }
 
-func TestPrepareFiles_AiderOnlyFirstFilePathGetsConfigs(t *testing.T) {
-	// aider has two file paths: .aider.conf.yml + CONVENTIONS.md.
-	// Only the first should receive aggregated config content.
+func TestPrepareFiles_AiderEmitsConfigAndContext(t *testing.T) {
 	target, _ := domain.LookupTarget("aider")
 	configs := []domain.ConfigFile{
-		{Name: "ctx", Content: []byte("project context")},
+		{Name: "project", Content: []byte("project context")},
+		{Name: "development", Content: []byte("development rules")},
 	}
 	files := prepareFiles(target, nil, configs)
+	byPath := emittedFilesByPath(files)
 
-	if len(files) != 1 {
-		t.Fatalf("expected 1 file (first path only), got %d", len(files))
+	if len(files) != 2 {
+		t.Fatalf("expected 2 files, got %d", len(files))
 	}
-	if files[0].Path != ".aider.conf.yml" {
-		t.Errorf("expected .aider.conf.yml, got %q", files[0].Path)
+	if got := string(byPath[".aider.conf.yml"].Content); got != "read:\n  - CONVENTIONS.md\n" {
+		t.Errorf("unexpected aider config content: %q", got)
+	}
+	expectedContext := "project context\n---\n\ndevelopment rules"
+	if got := string(byPath["CONVENTIONS.md"].Content); got != expectedContext {
+		t.Errorf("expected CONVENTIONS.md content %q, got %q", expectedContext, got)
+	}
+}
+
+func TestPrepareFiles_DescriptorAwareCandidateFiles(t *testing.T) {
+	skills := []domain.Skill{
+		{Name: "review", Content: []byte("review skill")},
+	}
+	configs := []domain.ConfigFile{
+		{Name: "project", Content: []byte("project context")},
+	}
+	tests := []struct {
+		name  string
+		paths []string
+	}{
+		{name: "claude", paths: []string{"CLAUDE.md", ".claude/skills/review.md"}},
+		{name: "codex", paths: []string{"AGENTS.md"}},
+		{name: "cursor", paths: []string{".cursor/rules/review.md"}},
+		{name: "aider", paths: []string{".aider.conf.yml", "CONVENTIONS.md"}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			target, err := domain.LookupTarget(tt.name)
+			if err != nil {
+				t.Fatalf("lookup target: %v", err)
+			}
+			files := prepareFiles(target, skills, configs)
+			paths := emittedFilePaths(files)
+			assertStringSlicesEqual(t, paths, tt.paths)
+		})
+	}
+}
+
+func TestPrepareFiles_DeterministicOrdering(t *testing.T) {
+	target, _ := domain.LookupTarget("claude")
+	skills := []domain.Skill{
+		{Name: "review", Content: []byte("review skill")},
+		{Name: "testing", Content: []byte("testing skill")},
+	}
+	configs := []domain.ConfigFile{
+		{Name: "project", Content: []byte("project context")},
+	}
+
+	first := emittedFilePaths(prepareFiles(target, skills, configs))
+	for range 5 {
+		next := emittedFilePaths(prepareFiles(target, skills, configs))
+		assertStringSlicesEqual(t, next, first)
+	}
+}
+
+func TestSync_AiderWithOutputDirEmitsConfigAndContext(t *testing.T) {
+	src := newTestSource()
+	src.manifest.Targets = []domain.TargetConfig{{Name: "aider", Enabled: true, OutputDir: "generated"}}
+	tmpDir := t.TempDir()
+	engine := NewSyncEngine(src, localfs.NewEmitter(tmpDir))
+
+	result, err := engine.Sync(context.Background(), SyncOptions{})
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	aider := findTargetResult(t, result, "aider")
+	if aider.FilesWritten != 2 {
+		t.Fatalf("expected 2 files written, got %d: %#v", aider.FilesWritten, aider.Files)
+	}
+	assertStringSlicesEqual(t, emittedResultPaths(aider.Files), []string{
+		"generated/.aider.conf.yml",
+		"generated/CONVENTIONS.md",
+	})
+	if !fileExists(filepath.Join(tmpDir, "generated", ".aider.conf.yml")) {
+		t.Fatal("expected generated/.aider.conf.yml to be written")
+	}
+	if !fileExists(filepath.Join(tmpDir, "generated", "CONVENTIONS.md")) {
+		t.Fatal("expected generated/CONVENTIONS.md to be written")
+	}
+	configContent, err := os.ReadFile(filepath.Join(tmpDir, "generated", ".aider.conf.yml"))
+	if err != nil {
+		t.Fatalf("read generated aider config: %v", err)
+	}
+	if !strings.Contains(string(configContent), "generated/CONVENTIONS.md") {
+		t.Fatalf("expected aider config to reference generated conventions file, got %q", string(configContent))
+	}
+}
+
+func TestPrepareFiles_AiderWithoutConfigsDoesNotEmitDanglingConfig(t *testing.T) {
+	target, _ := domain.LookupTarget("aider")
+	tests := []struct {
+		name    string
+		configs []domain.ConfigFile
+	}{
+		{name: "no configs"},
+		{name: "empty config content", configs: []domain.ConfigFile{{Name: "empty"}}},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			files := prepareFiles(target, nil, tt.configs)
+
+			if len(files) != 0 {
+				t.Fatalf("expected no files without config content, got %#v", files)
+			}
+		})
 	}
 }
 
 // --- Helpers ---
+
+func emittedFilesByPath(files []ports.EmittedFile) map[string]ports.EmittedFile {
+	byPath := make(map[string]ports.EmittedFile, len(files))
+	for _, file := range files {
+		byPath[file.Path] = file
+	}
+	return byPath
+}
+
+func emittedFilePaths(files []ports.EmittedFile) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
+}
+
+func emittedResultPaths(files []FileResult) []string {
+	paths := make([]string, 0, len(files))
+	for _, file := range files {
+		paths = append(paths, file.Path)
+	}
+	return paths
+}
+
+func assertStringSlicesEqual(t *testing.T, got, want []string) {
+	t.Helper()
+	if len(got) != len(want) {
+		t.Fatalf("expected %d paths %v, got %d paths %v", len(want), want, len(got), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("path %d: expected %q, got %q (all paths: %v)", i, want[i], got[i], got)
+		}
+	}
+}
 
 func findTargetResult(t *testing.T, result *SyncResult, name string) TargetResult {
 	t.Helper()
