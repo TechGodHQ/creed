@@ -12,17 +12,17 @@ Domain descriptors first, then use-case rendering, then result/CLI reporting, th
 
 ### 1) Target output descriptors (`target-output-mapping`)
 
-- [ ] **T1: Add semantic target output types** *(~1h)*
+- [x] **T1: Add semantic target output types** *(~1h)*
   - **Files:** `internal/domain/targets.go`, `internal/domain/types.go`, tests
   - **Do:** add `OutputKind` and `TargetOutput` types; add descriptor-returning method/function for targets.
   - **Verify:** unit tests assert `claude`, `cursor`, `codex`, and `aider` expose expected output descriptors.
 
-- [ ] **T2: Migrate target registry to output descriptors** *(~1h 30m)*
+- [x] **T2: Migrate target registry to output descriptors** *(~1h 30m)*
   - **Files:** `internal/domain/targets.go`, related tests
   - **Do:** define outputs for all current targets (`claude`, `cursor`, `codex`, `agents`, `windsurf`, `aider`) with explicit kinds.
   - **Verify:** existing target tests still pass; new tests cover Aider's separate `.aider.conf.yml` and `CONVENTIONS.md` descriptors.
 
-- [ ] **T3: Preserve compatibility helper for old emit-path callers** *(~45m)*
+- [x] **T3: Preserve compatibility helper for old emit-path callers** *(~45m)*
   - **Files:** `internal/domain/targets.go`, `internal/adapters/localfs/emitter.go` if needed
   - **Do:** keep `EmitPaths` behavior or provide a compatibility adapter until all call sites migrate.
   - **Verify:** `go test ./internal/domain ./internal/adapters/localfs`.

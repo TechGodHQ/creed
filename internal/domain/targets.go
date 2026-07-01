@@ -9,50 +9,57 @@ import (
 var ErrUnknownTarget = errors.New("unknown target")
 
 // DefaultTargets is the canonical registry of all supported targets.
-// Each target maps a canonical name to its metadata and emit-path logic.
+// Each target maps a canonical name to its metadata and semantic output logic.
 var DefaultTargets = map[string]*Target{
-	"claude": {
-		Name:        "claude",
-		DisplayName: "Claude Code",
-		EmitPaths: func(projectName string) []string {
-			return []string{"CLAUDE.md", ".claude/skills/"}
-		},
-	},
-	"cursor": {
-		Name:        "cursor",
-		DisplayName: "Cursor",
-		EmitPaths: func(projectName string) []string {
-			return []string{".cursor/rules/"}
-		},
-	},
-	"codex": {
-		Name:        "codex",
-		DisplayName: "OpenAI Codex",
-		EmitPaths: func(projectName string) []string {
-			return []string{"AGENTS.md"}
-		},
-	},
-	"agents": {
-		Name:        "agents",
-		DisplayName: "AGENTS.md (generic)",
-		EmitPaths: func(projectName string) []string {
-			return []string{"AGENTS.md"}
-		},
-	},
-	"windsurf": {
-		Name:        "windsurf",
-		DisplayName: "Windsurf",
-		EmitPaths: func(projectName string) []string {
-			return []string{".windsurfrules"}
-		},
-	},
-	"aider": {
-		Name:        "aider",
-		DisplayName: "Aider",
-		EmitPaths: func(projectName string) []string {
-			return []string{".aider.conf.yml", "CONVENTIONS.md"}
-		},
-	},
+	"claude": newTarget("claude", "Claude Code", []TargetOutput{
+		{Path: "CLAUDE.md", Kind: OutputKindContext, Format: "markdown"},
+		{Path: ".claude/skills/", Kind: OutputKindSkillDir, Format: "markdown"},
+	}),
+	"cursor": newTarget("cursor", "Cursor", []TargetOutput{
+		{Path: ".cursor/rules/", Kind: OutputKindSkillDir, Format: "markdown"},
+	}),
+	"codex": newTarget("codex", "OpenAI Codex", []TargetOutput{
+		{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
+	}),
+	"agents": newTarget("agents", "AGENTS.md (generic)", []TargetOutput{
+		{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
+	}),
+	"windsurf": newTarget("windsurf", "Windsurf", []TargetOutput{
+		{Path: ".windsurfrules", Kind: OutputKindContext, Format: "text"},
+	}),
+	"aider": newTarget("aider", "Aider", []TargetOutput{
+		{Path: ".aider.conf.yml", Kind: OutputKindConfig, Format: "yaml"},
+		{Path: "CONVENTIONS.md", Kind: OutputKindContext, Format: "markdown"},
+	}),
+}
+
+func newTarget(name, displayName string, outputs []TargetOutput) *Target {
+	copiedOutputs := cloneOutputs(outputs)
+	target := &Target{
+		Name:        name,
+		DisplayName: displayName,
+	}
+	target.Outputs = func(projectName string) []TargetOutput {
+		return cloneOutputs(copiedOutputs)
+	}
+	target.EmitPaths = func(projectName string) []string {
+		return emitPathsFromOutputs(copiedOutputs)
+	}
+	return target
+}
+
+func cloneOutputs(outputs []TargetOutput) []TargetOutput {
+	cloned := make([]TargetOutput, len(outputs))
+	copy(cloned, outputs)
+	return cloned
+}
+
+func emitPathsFromOutputs(outputs []TargetOutput) []string {
+	paths := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		paths = append(paths, output.Path)
+	}
+	return paths
 }
 
 // LookupTarget returns the target definition for the given name.
