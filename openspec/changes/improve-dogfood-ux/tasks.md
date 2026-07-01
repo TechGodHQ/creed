@@ -29,17 +29,17 @@ Domain descriptors first, then use-case rendering, then result/CLI reporting, th
 
 ### 2) Descriptor-aware rendering (`target-output-mapping`)
 
-- [ ] **T4: Replace bare-path prepareFiles with descriptor-aware rendering** *(~2h)*
+- [x] **T4: Replace bare-path prepareFiles with descriptor-aware rendering** *(~2h)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** render context outputs from config entries, skill directory outputs from skills, and config outputs from target-specific config renderers.
   - **Verify:** unit tests cover `claude`, `codex`, `cursor`, and `aider` candidate files.
 
-- [ ] **T5: Add minimal Aider config rendering** *(~1h 30m)*
+- [x] **T5: Add minimal Aider config rendering** *(~1h 30m)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** emit `.aider.conf.yml` with minimal deterministic YAML and `CONVENTIONS.md` from context/config content.
   - **Verify:** test asserts both files exist and contain appropriate content.
 
-- [ ] **T6: Preserve deterministic ordering** *(~45m)*
+- [x] **T6: Preserve deterministic ordering** *(~45m)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** ensure emitted file candidate order is stable across repeated generation.
   - **Verify:** repeated candidate generation test compares path order exactly.
