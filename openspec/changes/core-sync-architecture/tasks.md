@@ -107,7 +107,7 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Note:** `Pull` delegates git remote reads through the existing GitRemote source adapter. `Push` publishes `.creed/` source changes through the system git executable until a writable git port exists.
 
 ### 7) Generated surfaces (CLI/MCP) and wiring
-- [ ] **T19: Add Service interface-driven code generation** *(~2h)*
+- [x] **T19: Add Service interface-driven code generation** *(~2h)*
   - **Files:** `internal/codegen/`, `internal/codegen/*.tmpl`
   - **Do:** implement reflection-based extraction of method names/comments/params and generate:
     - Cobra command files in `cmd/gen/*.go`
