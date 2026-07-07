@@ -29,63 +29,63 @@ Domain descriptors first, then use-case rendering, then result/CLI reporting, th
 
 ### 2) Descriptor-aware rendering (`target-output-mapping`)
 
-- [ ] **T4: Replace bare-path prepareFiles with descriptor-aware rendering** *(~2h)*
+- [x] **T4: Replace bare-path prepareFiles with descriptor-aware rendering** *(~2h)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** render context outputs from config entries, skill directory outputs from skills, and config outputs from target-specific config renderers.
   - **Verify:** unit tests cover `claude`, `codex`, `cursor`, and `aider` candidate files.
 
-- [ ] **T5: Add minimal Aider config rendering** *(~1h 30m)*
+- [x] **T5: Add minimal Aider config rendering** *(~1h 30m)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** emit `.aider.conf.yml` with minimal deterministic YAML and `CONVENTIONS.md` from context/config content.
   - **Verify:** test asserts both files exist and contain appropriate content.
 
-- [ ] **T6: Preserve deterministic ordering** *(~45m)*
+- [x] **T6: Preserve deterministic ordering** *(~45m)*
   - **Files:** `internal/usecase/sync.go`, tests
   - **Do:** ensure emitted file candidate order is stable across repeated generation.
   - **Verify:** repeated candidate generation test compares path order exactly.
 
 ### 3) Dry-run reporting (`dry-run-reporting`)
 
-- [ ] **T7: Add would-write counts to result model** *(~45m)*
+- [x] **T7: Add would-write counts to result model** *(~45m)*
   - **Files:** `internal/usecase/result.go`, `internal/usecase/sync.go`, tests
   - **Do:** add `FilesWouldWrite` or equivalent and increment it for dry-run candidates that would write.
   - **Verify:** dry-run unit tests assert would-write and written counts separately.
 
-- [ ] **T8: Fix CLI dry-run summary output** *(~45m)*
+- [x] **T8: Fix CLI dry-run summary output** *(~45m)*
   - **Files:** `cmd/sync.go`, command tests
   - **Do:** print `would_write` counts in dry-run summaries and keep normal summaries unchanged.
   - **Verify:** CLI test covers dry-run summary with would-write files.
 
 ### 4) Init scaffolding (`init-scaffolding`)
 
-- [ ] **T9: Upgrade `creed init` scaffold files** *(~1h 30m)*
+- [x] **T9: Upgrade `creed init` scaffold files** *(~1h 30m)*
   - **Files:** `cmd/init.go`, `internal/service/impl.go`, tests
   - **Do:** create `.creed/config/project.md`, `.creed/config/development.md`, and `.creed/skills/review.md` in addition to manifest.
   - **Verify:** temp-dir init test asserts all scaffold files exist.
 
-- [ ] **T10: Enable practical default targets in generated manifest** *(~45m)*
+- [x] **T10: Enable practical default targets in generated manifest** *(~45m)*
   - **Files:** init/service manifest code, tests
   - **Do:** generated manifest enables `claude`, `codex`, and `cursor` with `output_dir: .`.
   - **Verify:** test reads manifest and asserts defaults.
 
-- [ ] **T11: Make init non-destructive** *(~1h)*
+- [x] **T11: Make init non-destructive** *(~1h)*
   - **Files:** init/service scaffold code, tests
   - **Do:** skip existing files rather than overwriting; return/report skipped files.
   - **Verify:** rerun init after editing scaffold files and assert custom content is preserved.
 
 ### 5) Dogfood regression (`dogfood-regression`)
 
-- [ ] **T12: Add reduced dogfood fixture** *(~45m)*
+- [x] **T12: Add reduced dogfood fixture** *(~45m)*
   - **Files:** `testdata/dogfood-creed/` or `internal/integration/testdata/dogfood-creed/`
   - **Do:** create fixture manifest/config/skills covering `claude`, `codex`, `cursor`, and `aider`.
   - **Verify:** fixture is consumed by integration tests, not just checked in.
 
-- [ ] **T13: Add dogfood integration test** *(~2h)*
+- [x] **T13: Add dogfood integration test** *(~2h)*
   - **Files:** `internal/integration/dogfood_test.go`
   - **Do:** sync fixture to temp output and assert expected files/content for AGENTS, CLAUDE, Cursor rules, and Aider.
   - **Verify:** test passes under `go test -race -count=1 ./internal/integration`.
 
-- [ ] **T14: Add idempotency assertion to dogfood regression** *(~45m)*
+- [x] **T14: Add idempotency assertion to dogfood regression** *(~45m)*
   - **Files:** `internal/integration/dogfood_test.go`
   - **Do:** run sync twice and assert second run skips unchanged files and content remains stable.
   - **Verify:** integration test covers repeated sync.

@@ -38,17 +38,25 @@ var syncCmd = &cobra.Command{
 			return err
 		}
 		for _, targetResult := range result.Targets {
+			if syncDryRun {
+				fmt.Fprintf(cmd.OutOrStdout(), "%s: %d written, %d would_write, %d skipped, %d failed\n",
+					targetResult.Target,
+					targetResult.FilesWritten,
+					targetResult.FilesWouldWrite,
+					targetResult.FilesSkipped,
+					targetResult.FilesFailed,
+				)
+				for _, file := range targetResult.Files {
+					fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", file.Status, file.Path)
+				}
+				continue
+			}
 			fmt.Fprintf(cmd.OutOrStdout(), "%s: %d written, %d skipped, %d failed\n",
 				targetResult.Target,
 				targetResult.FilesWritten,
 				targetResult.FilesSkipped,
 				targetResult.FilesFailed,
 			)
-			if syncDryRun {
-				for _, file := range targetResult.Files {
-					fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", file.Status, file.Path)
-				}
-			}
 		}
 		if result.HasErrors() {
 			return fmt.Errorf("sync completed with errors")
