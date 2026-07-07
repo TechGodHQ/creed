@@ -75,17 +75,17 @@ Domain descriptors first, then use-case rendering, then result/CLI reporting, th
 
 ### 5) Dogfood regression (`dogfood-regression`)
 
-- [ ] **T12: Add reduced dogfood fixture** *(~45m)*
+- [x] **T12: Add reduced dogfood fixture** *(~45m)*
   - **Files:** `testdata/dogfood-creed/` or `internal/integration/testdata/dogfood-creed/`
   - **Do:** create fixture manifest/config/skills covering `claude`, `codex`, `cursor`, and `aider`.
   - **Verify:** fixture is consumed by integration tests, not just checked in.
 
-- [ ] **T13: Add dogfood integration test** *(~2h)*
+- [x] **T13: Add dogfood integration test** *(~2h)*
   - **Files:** `internal/integration/dogfood_test.go`
   - **Do:** sync fixture to temp output and assert expected files/content for AGENTS, CLAUDE, Cursor rules, and Aider.
   - **Verify:** test passes under `go test -race -count=1 ./internal/integration`.
 
-- [ ] **T14: Add idempotency assertion to dogfood regression** *(~45m)*
+- [x] **T14: Add idempotency assertion to dogfood regression** *(~45m)*
   - **Files:** `internal/integration/dogfood_test.go`
   - **Do:** run sync twice and assert second run skips unchanged files and content remains stable.
   - **Verify:** integration test covers repeated sync.
