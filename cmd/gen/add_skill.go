@@ -22,10 +22,11 @@ var AddSkillSpec = AddSkillCommandSpec{
 // NewAddSkillCommand returns the generated Cobra command wrapper for service.Service.AddSkill.
 func NewAddSkillCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "add_skill",
+		Use:   "add-skill <name> [source-path]",
 		Short: "AddSkill registers a skill file in the manifest.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.RangeArgs(1, 2),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runAddSkill(cmd, s, args)
 		},
 	}
 	return cmd

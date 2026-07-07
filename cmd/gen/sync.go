@@ -24,9 +24,13 @@ func NewSyncCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
 		Short: "Sync syncs configured Creed context to one or more targets.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runSync(cmd, s, args)
 		},
 	}
+	cmd.Flags().StringP("target", "t", "", "emit for a specific target (claude, cursor, codex, windsurf, aider)")
+	cmd.Flags().Bool("dry-run", false, "show files that would be emitted without writing")
+	cmd.Flags().Bool("force", false, "rewrite files even when content is unchanged")
 	return cmd
 }

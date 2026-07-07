@@ -114,7 +114,7 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
     - MCP tool files in `internal/mcp/gen/*.go`
   - **Verify:** run generator and assert generated files exist for all `Service` methods.
 
-- [ ] **T20: Add CLI generation integration + command registration** *(~1h 30m)*
+- [x] **T20: Add CLI generation integration + command registration** *(~1h 30m)*
   - **Files:** `cmd/root.go`, `main.go`, generated CLI files
   - **Do:** ensure generated Cobra commands are initialized and root command delegates to `Service` methods.
   - **Verify:** `go test ./cmd` and golden tests for `creed sync --target claude`, `creed init` output path and exit.

@@ -22,10 +22,11 @@ var DisableTargetSpec = DisableTargetCommandSpec{
 // NewDisableTargetCommand returns the generated Cobra command wrapper for service.Service.DisableTarget.
 func NewDisableTargetCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "disable_target",
+		Use:   "disable-target <name>",
 		Short: "DisableTarget disables a target in the manifest, creating it if needed.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runDisableTarget(cmd, s, args)
 		},
 	}
 	return cmd
