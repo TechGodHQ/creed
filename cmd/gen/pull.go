@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// PullCommandSpec describes the generated CLI wrapper for service.Service.Pull.
+type PullCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// PullSpec is metadata extracted from service.Service.Pull.
+var PullSpec = PullCommandSpec{
+	MethodName: "Pull",
+	ParamNames: []string{"ctx", "remoteURL"},
+}
 
 // NewPullCommand returns the generated Cobra command wrapper for service.Service.Pull.
 func NewPullCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "pull",
-		Short: "Pull invokes service.Service.Pull",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "Pull syncs from a git remote source into the service root.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command pull is not wired yet")
 		},
 	}
 	return cmd

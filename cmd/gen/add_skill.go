@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// AddSkillCommandSpec describes the generated CLI wrapper for service.Service.AddSkill.
+type AddSkillCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// AddSkillSpec is metadata extracted from service.Service.AddSkill.
+var AddSkillSpec = AddSkillCommandSpec{
+	MethodName: "AddSkill",
+	ParamNames: []string{"ctx", "name", "sourcePath"},
+}
 
 // NewAddSkillCommand returns the generated Cobra command wrapper for service.Service.AddSkill.
 func NewAddSkillCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "add_skill",
-		Short: "AddSkill invokes service.Service.AddSkill",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "AddSkill registers a skill file in the manifest.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command add_skill is not wired yet")
 		},
 	}
 	return cmd

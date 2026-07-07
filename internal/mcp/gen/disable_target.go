@@ -6,4 +6,7 @@ package gen
 const DisableTargetToolName = "disable_target"
 
 // DisableTargetToolDescription is the generated MCP tool description for service.Service.DisableTarget.
-const DisableTargetToolDescription = "DisableTarget invokes service.Service.DisableTarget"
+const DisableTargetToolDescription = "DisableTarget disables a target in the manifest, creating it if needed."
+
+// DisableTargetToolParams are parameter names extracted from service.Service.DisableTarget.
+var DisableTargetToolParams = []string{"ctx", "name"}

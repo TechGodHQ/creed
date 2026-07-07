@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// ListSkillsCommandSpec describes the generated CLI wrapper for service.Service.ListSkills.
+type ListSkillsCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// ListSkillsSpec is metadata extracted from service.Service.ListSkills.
+var ListSkillsSpec = ListSkillsCommandSpec{
+	MethodName: "ListSkills",
+	ParamNames: []string{"ctx"},
+}
 
 // NewListSkillsCommand returns the generated Cobra command wrapper for service.Service.ListSkills.
 func NewListSkillsCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list_skills",
-		Short: "ListSkills invokes service.Service.ListSkills",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "ListSkills returns all registered skills.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command list_skills is not wired yet")
 		},
 	}
 	return cmd

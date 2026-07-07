@@ -6,4 +6,7 @@ package gen
 const InitToolName = "init"
 
 // InitToolDescription is the generated MCP tool description for service.Service.Init.
-const InitToolDescription = "Init invokes service.Service.Init"
+const InitToolDescription = "Init bootstraps a Creed project at the service root."
+
+// InitToolParams are parameter names extracted from service.Service.Init.
+var InitToolParams = []string{"ctx", "projectName"}

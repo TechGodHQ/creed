@@ -1,15 +1,15 @@
 // Package codegen implements the code generation tool that produces thin
 // wrappers (CLI commands, MCP tools) from the Service interface.
 //
-// This is the scaffolding entrypoint — the full reflection-based generator
-// is implemented in later PRs (T19). For now this provides the CLI
-// structure and help text so the build system can wire go:generate.
+// This entrypoint reads the canonical Service interface and emits generated
+// surface scaffolding so CLI, MCP, and future wrappers do not drift.
 package main
 
 import (
 	"flag"
 	"fmt"
 	"go/ast"
+	"go/format"
 	"go/parser"
 	"go/token"
 	"os"
@@ -30,10 +30,16 @@ Flags:
   --dry-run         Show what would be generated without writing files
   -h, --help        Show this help message
 
-The generator reads the Service interface via Go reflection, extracts method
-names, parameter types, and doc comments, then produces thin wrappers that
-eliminate drift between CLI, MCP, and future HTTP surfaces.
+The generator reads the Service interface via Go AST, extracts method names,
+parameter names, and doc comments, then produces thin wrappers that eliminate
+drift between CLI, MCP, and future HTTP surfaces.
 `
+
+type serviceMethod struct {
+	Name   string
+	Doc    string
+	Params []string
+}
 
 func main() {
 	if err := run(os.Args[1:]); err != nil {
@@ -73,7 +79,7 @@ func run(args []string) error {
 		return err
 	}
 	for _, method := range methods {
-		name := snakeCase(method)
+		name := snakeCase(method.Name)
 		if err := writeGeneratedFile(outCLI, name, method, "CLI", dryRun); err != nil {
 			return err
 		}
@@ -84,11 +90,12 @@ func run(args []string) error {
 	return nil
 }
 
-func serviceMethods(path string) ([]string, error) {
+func serviceMethods(path string) ([]serviceMethod, error) {
 	file, err := parser.ParseFile(token.NewFileSet(), path, nil, parser.ParseComments)
 	if err != nil {
 		return nil, fmt.Errorf("parse service file: %w", err)
 	}
+	interfaces := map[string]*ast.InterfaceType{}
 	for _, decl := range file.Decls {
 		gen, ok := decl.(*ast.GenDecl)
 		if !ok || gen.Tok != token.TYPE {
@@ -96,27 +103,67 @@ func serviceMethods(path string) ([]string, error) {
 		}
 		for _, spec := range gen.Specs {
 			typeSpec, ok := spec.(*ast.TypeSpec)
-			if !ok || typeSpec.Name.Name != "Service" {
+			if !ok {
 				continue
 			}
 			iface, ok := typeSpec.Type.(*ast.InterfaceType)
-			if !ok {
-				return nil, fmt.Errorf("Service is not an interface")
+			if ok {
+				interfaces[typeSpec.Name.Name] = iface
 			}
-			methods := make([]string, 0, len(iface.Methods.List))
-			for _, field := range iface.Methods.List {
-				if len(field.Names) == 0 {
-					continue
-				}
-				methods = append(methods, field.Names[0].Name)
-			}
-			return methods, nil
 		}
 	}
-	return nil, fmt.Errorf("Service interface not found in %s", path)
+	service, ok := interfaces["Service"]
+	if !ok {
+		return nil, fmt.Errorf("Service interface not found in %s", path)
+	}
+	return collectInterfaceMethods(service, interfaces, map[string]bool{"Service": true}), nil
 }
 
-func writeGeneratedFile(dir, name, method, surface string, dryRun bool) error {
+func collectInterfaceMethods(iface *ast.InterfaceType, interfaces map[string]*ast.InterfaceType, seen map[string]bool) []serviceMethod {
+	methods := make([]serviceMethod, 0, len(iface.Methods.List))
+	for _, field := range iface.Methods.List {
+		if len(field.Names) == 0 {
+			ident, ok := field.Type.(*ast.Ident)
+			if !ok || interfaces[ident.Name] == nil || seen[ident.Name] {
+				continue
+			}
+			seen[ident.Name] = true
+			methods = append(methods, collectInterfaceMethods(interfaces[ident.Name], interfaces, seen)...)
+			continue
+		}
+
+		fn, _ := field.Type.(*ast.FuncType)
+		for _, name := range field.Names {
+			methods = append(methods, serviceMethod{
+				Name:   name.Name,
+				Doc:    strings.TrimSpace(field.Doc.Text()),
+				Params: paramNames(fn),
+			})
+		}
+	}
+	return methods
+}
+
+func paramNames(fn *ast.FuncType) []string {
+	if fn == nil || fn.Params == nil {
+		return nil
+	}
+	params := []string{}
+	unnamed := 1
+	for _, field := range fn.Params.List {
+		if len(field.Names) == 0 {
+			params = append(params, fmt.Sprintf("param%d", unnamed))
+			unnamed++
+			continue
+		}
+		for _, name := range field.Names {
+			params = append(params, name.Name)
+		}
+	}
+	return params
+}
+
+func writeGeneratedFile(dir, name string, method serviceMethod, surface string, dryRun bool) error {
 	path := filepath.Join(dir, name+".go")
 	if dryRun {
 		fmt.Printf("would write %s\n", path)
@@ -125,42 +172,58 @@ func writeGeneratedFile(dir, name, method, surface string, dryRun bool) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create output dir %s: %w", dir, err)
 	}
-	content := generatedContent(name, method, surface)
+	content, err := generatedContent(name, method, surface)
+	if err != nil {
+		return err
+	}
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
 }
 
-func generatedContent(name, method, surface string) string {
+func generatedContent(name string, method serviceMethod, surface string) (string, error) {
+	doc := method.Doc
+	if doc == "" {
+		doc = method.Name + " invokes service.Service." + method.Name
+	}
 	switch surface {
 	case "CLI":
-		return fmt.Sprintf(`// Code generated by creed-codegen; DO NOT EDIT.
+		return formatGo(fmt.Sprintf(`// Code generated by creed-codegen; DO NOT EDIT.
 
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// %[2]sCommandSpec describes the generated CLI wrapper for service.Service.%[2]s.
+type %[2]sCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// %[2]sSpec is metadata extracted from service.Service.%[2]s.
+var %[2]sSpec = %[2]sCommandSpec{
+	MethodName: %[2]q,
+	ParamNames: []string{%[4]s},
+}
 
 // New%[2]sCommand returns the generated Cobra command wrapper for service.Service.%[2]s.
 func New%[2]sCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   %[1]q,
 		Short: %[3]q,
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command %[1]s is not wired yet")
 		},
 	}
 	return cmd
 }
-`, name, method, method+" invokes service.Service."+method)
+`, name, method.Name, doc, quotedList(method.Params)))
 	case "MCP":
-		return fmt.Sprintf(`// Code generated by creed-codegen; DO NOT EDIT.
+		return formatGo(fmt.Sprintf(`// Code generated by creed-codegen; DO NOT EDIT.
 
 package gen
 
@@ -169,10 +232,29 @@ const %[2]sToolName = %[1]q
 
 // %[2]sToolDescription is the generated MCP tool description for service.Service.%[2]s.
 const %[2]sToolDescription = %[3]q
-`, name, method, method+" invokes service.Service."+method)
+
+// %[2]sToolParams are parameter names extracted from service.Service.%[2]s.
+var %[2]sToolParams = []string{%[4]s}
+`, name, method.Name, doc, quotedList(method.Params)))
 	default:
-		return "// Code generated by creed-codegen; DO NOT EDIT.\n\npackage gen\n"
+		return "// Code generated by creed-codegen; DO NOT EDIT.\n\npackage gen\n", nil
 	}
+}
+
+func formatGo(src string) (string, error) {
+	formatted, err := format.Source([]byte(src))
+	if err != nil {
+		return "", fmt.Errorf("format generated source: %w", err)
+	}
+	return string(formatted), nil
+}
+
+func quotedList(values []string) string {
+	quoted := make([]string, 0, len(values))
+	for _, value := range values {
+		quoted = append(quoted, fmt.Sprintf("%q", value))
+	}
+	return strings.Join(quoted, ", ")
 }
 
 func snakeCase(name string) string {

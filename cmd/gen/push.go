@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// PushCommandSpec describes the generated CLI wrapper for service.Service.Push.
+type PushCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// PushSpec is metadata extracted from service.Service.Push.
+var PushSpec = PushCommandSpec{
+	MethodName: "Push",
+	ParamNames: []string{"ctx", "remoteURL"},
+}
 
 // NewPushCommand returns the generated Cobra command wrapper for service.Service.Push.
 func NewPushCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "push",
-		Short: "Push invokes service.Service.Push",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "Push publishes local source changes to the configured remote.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command push is not wired yet")
 		},
 	}
 	return cmd

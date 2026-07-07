@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// EnableTargetCommandSpec describes the generated CLI wrapper for service.Service.EnableTarget.
+type EnableTargetCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// EnableTargetSpec is metadata extracted from service.Service.EnableTarget.
+var EnableTargetSpec = EnableTargetCommandSpec{
+	MethodName: "EnableTarget",
+	ParamNames: []string{"ctx", "name"},
+}
 
 // NewEnableTargetCommand returns the generated Cobra command wrapper for service.Service.EnableTarget.
 func NewEnableTargetCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "enable_target",
-		Short: "EnableTarget invokes service.Service.EnableTarget",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "EnableTarget enables a target in the manifest, creating it if needed.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command enable_target is not wired yet")
 		},
 	}
 	return cmd

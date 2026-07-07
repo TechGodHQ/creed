@@ -6,4 +6,7 @@ package gen
 const EnableTargetToolName = "enable_target"
 
 // EnableTargetToolDescription is the generated MCP tool description for service.Service.EnableTarget.
-const EnableTargetToolDescription = "EnableTarget invokes service.Service.EnableTarget"
+const EnableTargetToolDescription = "EnableTarget enables a target in the manifest, creating it if needed."
+
+// EnableTargetToolParams are parameter names extracted from service.Service.EnableTarget.
+var EnableTargetToolParams = []string{"ctx", "name"}

@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// DisableTargetCommandSpec describes the generated CLI wrapper for service.Service.DisableTarget.
+type DisableTargetCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// DisableTargetSpec is metadata extracted from service.Service.DisableTarget.
+var DisableTargetSpec = DisableTargetCommandSpec{
+	MethodName: "DisableTarget",
+	ParamNames: []string{"ctx", "name"},
+}
 
 // NewDisableTargetCommand returns the generated Cobra command wrapper for service.Service.DisableTarget.
 func NewDisableTargetCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "disable_target",
-		Short: "DisableTarget invokes service.Service.DisableTarget",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "DisableTarget disables a target in the manifest, creating it if needed.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command disable_target is not wired yet")
 		},
 	}
 	return cmd

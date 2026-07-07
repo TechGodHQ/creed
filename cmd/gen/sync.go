@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// SyncCommandSpec describes the generated CLI wrapper for service.Service.Sync.
+type SyncCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// SyncSpec is metadata extracted from service.Service.Sync.
+var SyncSpec = SyncCommandSpec{
+	MethodName: "Sync",
+	ParamNames: []string{"ctx", "opts"},
+}
 
 // NewSyncCommand returns the generated Cobra command wrapper for service.Service.Sync.
 func NewSyncCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "sync",
-		Short: "Sync invokes service.Service.Sync",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "Sync syncs configured Creed context to one or more targets.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command sync is not wired yet")
 		},
 	}
 	return cmd

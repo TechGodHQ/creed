@@ -6,4 +6,7 @@ package gen
 const PushToolName = "push"
 
 // PushToolDescription is the generated MCP tool description for service.Service.Push.
-const PushToolDescription = "Push invokes service.Service.Push"
+const PushToolDescription = "Push publishes local source changes to the configured remote."
+
+// PushToolParams are parameter names extracted from service.Service.Push.
+var PushToolParams = []string{"ctx", "remoteURL"}

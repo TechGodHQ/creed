@@ -6,4 +6,7 @@ package gen
 const AddSkillToolName = "add_skill"
 
 // AddSkillToolDescription is the generated MCP tool description for service.Service.AddSkill.
-const AddSkillToolDescription = "AddSkill invokes service.Service.AddSkill"
+const AddSkillToolDescription = "AddSkill registers a skill file in the manifest."
+
+// AddSkillToolParams are parameter names extracted from service.Service.AddSkill.
+var AddSkillToolParams = []string{"ctx", "name", "sourcePath"}

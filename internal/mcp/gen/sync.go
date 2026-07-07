@@ -6,4 +6,7 @@ package gen
 const SyncToolName = "sync"
 
 // SyncToolDescription is the generated MCP tool description for service.Service.Sync.
-const SyncToolDescription = "Sync invokes service.Service.Sync"
+const SyncToolDescription = "Sync syncs configured Creed context to one or more targets."
+
+// SyncToolParams are parameter names extracted from service.Service.Sync.
+var SyncToolParams = []string{"ctx", "opts"}

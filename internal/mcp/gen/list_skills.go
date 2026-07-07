@@ -6,4 +6,7 @@ package gen
 const ListSkillsToolName = "list_skills"
 
 // ListSkillsToolDescription is the generated MCP tool description for service.Service.ListSkills.
-const ListSkillsToolDescription = "ListSkills invokes service.Service.ListSkills"
+const ListSkillsToolDescription = "ListSkills returns all registered skills."
+
+// ListSkillsToolParams are parameter names extracted from service.Service.ListSkills.
+var ListSkillsToolParams = []string{"ctx"}

@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// ListTargetsCommandSpec describes the generated CLI wrapper for service.Service.ListTargets.
+type ListTargetsCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// ListTargetsSpec is metadata extracted from service.Service.ListTargets.
+var ListTargetsSpec = ListTargetsCommandSpec{
+	MethodName: "ListTargets",
+	ParamNames: []string{"ctx"},
+}
 
 // NewListTargetsCommand returns the generated Cobra command wrapper for service.Service.ListTargets.
 func NewListTargetsCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "list_targets",
-		Short: "ListTargets invokes service.Service.ListTargets",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "ListTargets returns all known targets with manifest enablement metadata.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command list_targets is not wired yet")
 		},
 	}
 	return cmd

@@ -6,4 +6,7 @@ package gen
 const PullToolName = "pull"
 
 // PullToolDescription is the generated MCP tool description for service.Service.Pull.
-const PullToolDescription = "Pull invokes service.Service.Pull"
+const PullToolDescription = "Pull syncs from a git remote source into the service root."
+
+// PullToolParams are parameter names extracted from service.Service.Pull.
+var PullToolParams = []string{"ctx", "remoteURL"}

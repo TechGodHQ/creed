@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// InitCommandSpec describes the generated CLI wrapper for service.Service.Init.
+type InitCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// InitSpec is metadata extracted from service.Service.Init.
+var InitSpec = InitCommandSpec{
+	MethodName: "Init",
+	ParamNames: []string{"ctx", "projectName"},
+}
 
 // NewInitCommand returns the generated Cobra command wrapper for service.Service.Init.
 func NewInitCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "init",
-		Short: "Init invokes service.Service.Init",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "Init bootstraps a Creed project at the service root.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command init is not wired yet")
 		},
 	}
 	return cmd

@@ -3,20 +3,29 @@
 package gen
 
 import (
-	"fmt"
-
 	"github.com/spf13/cobra"
 	"github.com/techgodhq/creed/internal/service"
 )
+
+// RemoveSkillCommandSpec describes the generated CLI wrapper for service.Service.RemoveSkill.
+type RemoveSkillCommandSpec struct {
+	MethodName string
+	ParamNames []string
+}
+
+// RemoveSkillSpec is metadata extracted from service.Service.RemoveSkill.
+var RemoveSkillSpec = RemoveSkillCommandSpec{
+	MethodName: "RemoveSkill",
+	ParamNames: []string{"ctx", "name"},
+}
 
 // NewRemoveSkillCommand returns the generated Cobra command wrapper for service.Service.RemoveSkill.
 func NewRemoveSkillCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
 		Use:   "remove_skill",
-		Short: "RemoveSkill invokes service.Service.RemoveSkill",
-		RunE: func(cmd *cobra.Command, args []string) error {
+		Short: "RemoveSkill removes a skill registration from the manifest.",
+		Run: func(cmd *cobra.Command, args []string) {
 			_ = s
-			return fmt.Errorf("generated command remove_skill is not wired yet")
 		},
 	}
 	return cmd

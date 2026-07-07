@@ -6,4 +6,7 @@ package gen
 const ListTargetsToolName = "list_targets"
 
 // ListTargetsToolDescription is the generated MCP tool description for service.Service.ListTargets.
-const ListTargetsToolDescription = "ListTargets invokes service.Service.ListTargets"
+const ListTargetsToolDescription = "ListTargets returns all known targets with manifest enablement metadata."
+
+// ListTargetsToolParams are parameter names extracted from service.Service.ListTargets.
+var ListTargetsToolParams = []string{"ctx"}
