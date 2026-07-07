@@ -92,12 +92,12 @@ Domain descriptors first, then use-case rendering, then result/CLI reporting, th
 
 ### 6) Docs and delivery
 
-- [ ] **T15: Update README for improved init and dry-run behavior** *(~45m)*
+- [x] **T15: Update README for improved init and dry-run behavior** *(~45m)*
   - **Files:** `README.md`
   - **Do:** document scaffolded files, default targets, dry-run summary semantics, and Aider behavior.
   - **Verify:** examples match current CLI output.
 
-- [ ] **T16: Run full verification and mark tasks complete** *(~45m)*
+- [x] **T16: Run full verification and mark tasks complete** *(~45m)*
   - **Do:** execute:
     - `go build ./...`
     - `go test -race -count=1 ./...`

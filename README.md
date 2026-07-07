@@ -37,31 +37,13 @@ go test ./...
 ## Quick start
 
 ```bash
-# Initialize .creed/manifest.yaml in the current project
+# Initialize .creed/ in the current project
 creed init my-project
 
-# Edit .creed/manifest.yaml to enable targets and add source entries
-cat > .creed/manifest.yaml <<'YAML'
-version: 1
-source:
-  type: local
-  path: .creed
-targets:
-  - name: claude
-    enabled: true
-    output_dir: .
-skills:
-  - name: review
-    path: skills/review.md
-config:
-  - name: project
-    path: config/project.md
-YAML
-
-# Add source files under .creed/
-mkdir -p .creed/skills .creed/config
-printf '# Project Context\n' > .creed/config/project.md
-printf '# Review\n' > .creed/skills/review.md
+# Edit the starter scaffold files
+$EDITOR .creed/config/project.md
+$EDITOR .creed/config/development.md
+$EDITOR .creed/skills/review.md
 
 # Emit context files for all enabled targets
 creed sync
@@ -76,6 +58,20 @@ creed sync --target claude --dry-run
 creed sync --target claude --force
 ```
 
+`creed init` is non-destructive: rerunning it creates missing starter files but
+does not overwrite existing `.creed/` content.
+
+By default, `creed init` creates:
+
+- `.creed/manifest.yaml`
+- `.creed/config/project.md`
+- `.creed/config/development.md`
+- `.creed/skills/review.md`
+
+The generated manifest enables `claude`, `codex`, and `cursor` with
+`output_dir: .`. Less universal targets (`agents`, `aider`, and `windsurf`) are
+listed but disabled until you opt in.
+
 ## Manifest format
 
 `creed` reads `.creed/manifest.yaml`:
@@ -87,13 +83,22 @@ source:
   path: .creed
   # remote: https://github.com/example/context.git
 targets:
+  - name: agents
+    enabled: false
+    output_dir: .
+  - name: aider
+    enabled: false
+    output_dir: .
   - name: claude
+    enabled: true
+    output_dir: .
+  - name: codex
     enabled: true
     output_dir: .
   - name: cursor
     enabled: true
     output_dir: .
-  - name: codex
+  - name: windsurf
     enabled: false
     output_dir: .
 skills:
@@ -102,6 +107,8 @@ skills:
 config:
   - name: project
     path: config/project.md
+  - name: development
+    path: config/development.md
 ```
 
 Paths in `skills` and `config` are relative to `.creed/`. `output_dir` is relative
@@ -126,11 +133,22 @@ source:
 
 - Skill files are emitted to target directory paths, such as `.claude/skills/`
   and `.cursor/rules/`.
-- Config files are concatenated and emitted to the first target file path, such
-  as `CLAUDE.md` or `AGENTS.md`.
+- Config files are concatenated and emitted to context outputs, such as
+  `CLAUDE.md`, `AGENTS.md`, `.windsurfrules`, or `CONVENTIONS.md`.
+- Aider receives two files when enabled: `.aider.conf.yml` points Aider at
+  `CONVENTIONS.md`, and `CONVENTIONS.md` receives the aggregated project
+  context.
 - The second identical run is idempotent and reports skipped files.
 - `--dry-run` reports which candidate files would be written and which are
-  already identical, without writing.
+  already identical, without writing. Dry-run summaries include a separate
+  `would_write` count, for example:
+
+  ```text
+  claude: 0 written, 2 would_write, 0 skipped, 0 failed
+    would_write CLAUDE.md
+    would_write .claude/skills/review.md
+  ```
+
 - `--force` cleans the target paths first, then rewrites emitted files.
 
 ## Architecture
