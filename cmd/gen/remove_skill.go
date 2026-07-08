@@ -22,10 +22,11 @@ var RemoveSkillSpec = RemoveSkillCommandSpec{
 // NewRemoveSkillCommand returns the generated Cobra command wrapper for service.Service.RemoveSkill.
 func NewRemoveSkillCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "remove_skill",
+		Use:   "remove-skill <name>",
 		Short: "RemoveSkill removes a skill registration from the manifest.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runRemoveSkill(cmd, s, args)
 		},
 	}
 	return cmd

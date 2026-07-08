@@ -22,10 +22,11 @@ var EnableTargetSpec = EnableTargetCommandSpec{
 // NewEnableTargetCommand returns the generated Cobra command wrapper for service.Service.EnableTarget.
 func NewEnableTargetCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "enable_target",
+		Use:   "enable-target <name>",
 		Short: "EnableTarget enables a target in the manifest, creating it if needed.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.ExactArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runEnableTarget(cmd, s, args)
 		},
 	}
 	return cmd

@@ -12,11 +12,63 @@ func TestSyncCommandDryRunSummaryIncludesWouldWriteCount(t *testing.T) {
 	projectDir := t.TempDir()
 	writeTestCreedProject(t, projectDir)
 
+	out := executeRootCommandInDir(t, projectDir, "sync", "--target", "claude", "--dry-run")
+
+	output := out.String()
+	if !strings.Contains(output, "claude: 0 written, 1 would_write, 0 skipped, 0 failed") {
+		t.Fatalf("dry-run summary did not include would_write count; output:\n%s", output)
+	}
+	if !strings.Contains(output, "  would_write CLAUDE.md") {
+		t.Fatalf("dry-run output should list would-write files; output:\n%s", output)
+	}
+}
+
+func TestInitCommandCreatesProjectScaffold(t *testing.T) {
+	projectDir := t.TempDir()
+
+	out := executeRootCommandInDir(t, projectDir, "init", "demo")
+
+	if !strings.Contains(out.String(), "Initialized creed project") {
+		t.Fatalf("init output should report created project; output:\n%s", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(projectDir, ".creed", "manifest.yaml")); err != nil {
+		t.Fatalf("init should create manifest: %v", err)
+	}
+}
+
+func TestGeneratedCommandsAreRegisteredWithoutConflictingHandwrittenCommands(t *testing.T) {
+	for _, name := range []string{"init", "sync", "add-skill", "remove-skill", "list-skills", "list-targets", "enable-target", "disable-target", "pull", "push"} {
+		matches := 0
+		for _, command := range rootCmd.Commands() {
+			if command.Name() == name {
+				matches++
+			}
+		}
+		if matches != 1 {
+			t.Fatalf("expected exactly one %q command, got %d", name, matches)
+		}
+	}
+}
+
+func TestGeneratedListTargetsCommandDelegatesToService(t *testing.T) {
+	projectDir := t.TempDir()
+	writeTestCreedProject(t, projectDir)
+
+	out := executeRootCommandInDir(t, projectDir, "list-targets")
+
+	output := out.String()
+	if !strings.Contains(output, "claude\tenabled\t.") {
+		t.Fatalf("list-targets should include service-derived claude target state; output:\n%s", output)
+	}
+}
+
+func executeRootCommandInDir(t *testing.T, dir string, args ...string) bytes.Buffer {
+	t.Helper()
 	oldWd, err := os.Getwd()
 	if err != nil {
 		t.Fatalf("get cwd: %v", err)
 	}
-	if err := os.Chdir(projectDir); err != nil {
+	if err := os.Chdir(dir); err != nil {
 		t.Fatalf("chdir temp project: %v", err)
 	}
 	defer func() {
@@ -30,7 +82,7 @@ func TestSyncCommandDryRunSummaryIncludesWouldWriteCount(t *testing.T) {
 	syncForce = false
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
-	rootCmd.SetArgs([]string{"sync", "--target", "claude", "--dry-run"})
+	rootCmd.SetArgs(args)
 	defer func() {
 		rootCmd.SetOut(os.Stdout)
 		rootCmd.SetErr(os.Stderr)
@@ -40,16 +92,9 @@ func TestSyncCommandDryRunSummaryIncludesWouldWriteCount(t *testing.T) {
 	}()
 
 	if err := rootCmd.Execute(); err != nil {
-		t.Fatalf("sync command failed: %v\noutput:\n%s", err, out.String())
+		t.Fatalf("command %v failed: %v\noutput:\n%s", args, err, out.String())
 	}
-
-	output := out.String()
-	if !strings.Contains(output, "claude: 0 written, 1 would_write, 0 skipped, 0 failed") {
-		t.Fatalf("dry-run summary did not include would_write count; output:\n%s", output)
-	}
-	if !strings.Contains(output, "  would_write CLAUDE.md") {
-		t.Fatalf("dry-run output should list would-write files; output:\n%s", output)
-	}
+	return out
 }
 
 func writeTestCreedProject(t *testing.T, projectDir string) {

@@ -22,10 +22,11 @@ var ListTargetsSpec = ListTargetsCommandSpec{
 // NewListTargetsCommand returns the generated Cobra command wrapper for service.Service.ListTargets.
 func NewListTargetsCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list_targets",
+		Use:   "list-targets",
 		Short: "ListTargets returns all known targets with manifest enablement metadata.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runListTargets(cmd, s, args)
 		},
 	}
 	return cmd

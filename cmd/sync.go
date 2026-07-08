@@ -64,10 +64,3 @@ var syncCmd = &cobra.Command{
 		return nil
 	},
 }
-
-func init() {
-	addTargetFlag(syncCmd)
-	syncCmd.Flags().BoolVar(&syncDryRun, "dry-run", false, "show files that would be emitted without writing")
-	syncCmd.Flags().BoolVar(&syncForce, "force", false, "rewrite files even when content is unchanged")
-	rootCmd.AddCommand(syncCmd)
-}

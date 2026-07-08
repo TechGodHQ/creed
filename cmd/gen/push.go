@@ -22,10 +22,11 @@ var PushSpec = PushCommandSpec{
 // NewPushCommand returns the generated Cobra command wrapper for service.Service.Push.
 func NewPushCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "push",
+		Use:   "push [remote-url]",
 		Short: "Push publishes local source changes to the configured remote.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPush(cmd, s, args)
 		},
 	}
 	return cmd

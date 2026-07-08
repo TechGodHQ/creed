@@ -22,10 +22,11 @@ var PullSpec = PullCommandSpec{
 // NewPullCommand returns the generated Cobra command wrapper for service.Service.Pull.
 func NewPullCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "pull",
+		Use:   "pull [remote-url]",
 		Short: "Pull syncs from a git remote source into the service root.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runPull(cmd, s, args)
 		},
 	}
 	return cmd

@@ -22,10 +22,11 @@ var InitSpec = InitCommandSpec{
 // NewInitCommand returns the generated Cobra command wrapper for service.Service.Init.
 func NewInitCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "init",
+		Use:   "init [project-name]",
 		Short: "Init bootstraps a Creed project at the service root.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.MaximumNArgs(1),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runInit(cmd, s, args)
 		},
 	}
 	return cmd

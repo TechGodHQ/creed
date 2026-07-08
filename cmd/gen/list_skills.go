@@ -22,10 +22,11 @@ var ListSkillsSpec = ListSkillsCommandSpec{
 // NewListSkillsCommand returns the generated Cobra command wrapper for service.Service.ListSkills.
 func NewListSkillsCommand(s service.Service) *cobra.Command {
 	cmd := &cobra.Command{
-		Use:   "list_skills",
+		Use:   "list-skills",
 		Short: "ListSkills returns all registered skills.",
-		Run: func(cmd *cobra.Command, args []string) {
-			_ = s
+		Args:  cobra.NoArgs,
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runListSkills(cmd, s, args)
 		},
 	}
 	return cmd
