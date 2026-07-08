@@ -119,7 +119,7 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Do:** ensure generated Cobra commands are initialized and root command delegates to `Service` methods.
   - **Verify:** `go test ./cmd` and golden tests for `creed sync --target claude`, `creed init` output path and exit.
 
-- [ ] **T21: Add MCP generation integration + server entrypoint** *(~2h)*
+- [x] **T21: Add MCP generation integration + server entrypoint** *(~2h)*
   - **Files:** `internal/mcp/server.go`, generated MCP files
   - **Do:** start MCP server, register tools directly from generated methods, expose structured JSON responses.
   - **Verify:** integration test enumerates tool list contains `sync`, `add_skill`, `list_targets`; calling `sync` returns structured result.
