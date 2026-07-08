@@ -178,7 +178,11 @@ func writeCLIRuntimeFile(dir string, dryRun bool) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return fmt.Errorf("create output dir %s: %w", dir, err)
 	}
-	if err := os.WriteFile(path, []byte(cliRuntimeSource), 0o644); err != nil {
+	content, err := formatGo(cliRuntimeSource)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
@@ -310,7 +314,15 @@ func formatGo(src string) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("format generated source: %w", err)
 	}
-	return string(formatted), nil
+	return groupLocalImports(string(formatted)), nil
+}
+
+func groupLocalImports(src string) string {
+	return strings.ReplaceAll(
+		src,
+		"\"github.com/spf13/cobra\"\n	\"github.com/techgodhq/creed/",
+		"\"github.com/spf13/cobra\"\n\n	\"github.com/techgodhq/creed/",
+	)
 }
 
 func quotedList(values []string) string {
@@ -379,6 +391,7 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
 	"github.com/techgodhq/creed/internal/service"
 	"github.com/techgodhq/creed/internal/usecase"
 )

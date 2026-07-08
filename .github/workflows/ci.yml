@@ -24,6 +24,12 @@ jobs:
       - name: Download dependencies
         run: go mod download
 
+      - name: Verify generated code is current
+        run: |
+          go generate ./...
+          git diff --exit-code
+          test -z "$(git status --porcelain)"
+
       - name: Vet
         run: go vet ./...
 
