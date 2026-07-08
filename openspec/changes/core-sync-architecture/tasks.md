@@ -124,7 +124,7 @@ Ports and interfaces first, then adapters, then use cases/service, then generate
   - **Do:** start MCP server, register tools directly from generated methods, expose structured JSON responses.
   - **Verify:** integration test enumerates tool list contains `sync`, `add_skill`, `list_targets`; calling `sync` returns structured result.
 
-- [ ] **T22: Add generated-code generation lifecycle in CI/build** *(~45m)*
+- [x] **T22: Add generated-code generation lifecycle in CI/build** *(~45m)*
   - **Files:** `main.go`, `.github/workflows/ci.yml`, `Makefile` (if present)
   - **Do:** wire `go:generate` and CI target to run generator checks, fail on dirty tree after generation.
   - **Verify:** `go test ./...` after `go generate ./...` in clean tree.
