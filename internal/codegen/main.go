@@ -174,15 +174,6 @@ func collectInterfaceMethods(iface *ast.InterfaceType, interfaces map[string]*as
 	return methods
 }
 
-func paramNames(fn *ast.FuncType) []string {
-	params := methodParams(fn)
-	names := make([]string, 0, len(params))
-	for _, param := range params {
-		names = append(names, param.Name)
-	}
-	return names
-}
-
 func methodParams(fn *ast.FuncType) []methodParam {
 	if fn == nil || fn.Params == nil {
 		return nil
