@@ -14,6 +14,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"unicode"
 )
@@ -27,6 +28,7 @@ Flags:
   --service PATH    Path to the service interface Go file (default: internal/service/service.go)
   --out-cli PATH    Output directory for generated CLI commands (default: cmd/gen)
   --out-mcp PATH    Output directory for generated MCP tools (default: internal/mcp/gen)
+  --out-ops PATH    Output directory for generated operation descriptors (default: internal/ops/gen)
   --dry-run         Show what would be generated without writing files
   -h, --help        Show this help message
 
@@ -36,9 +38,25 @@ drift between CLI, MCP, and future HTTP surfaces.
 `
 
 type serviceMethod struct {
-	Name   string
-	Doc    string
-	Params []string
+	Name    string
+	Doc     string
+	Params  []methodParam
+	Results []methodResult
+}
+
+type methodParam struct {
+	Name         string
+	ExternalName string
+	Type         string
+	Kind         string
+	Required     bool
+	CLIKind      string
+	Help         string
+}
+
+type methodResult struct {
+	Name string
+	Type string
 }
 
 func main() {
@@ -53,6 +71,7 @@ func run(args []string) error {
 		servicePath string
 		outCLI      string
 		outMCP      string
+		outOps      string
 		dryRun      bool
 		showHelp    bool
 	)
@@ -61,6 +80,7 @@ func run(args []string) error {
 	fs.StringVar(&servicePath, "service", "internal/service/service.go", "Path to the service interface Go file")
 	fs.StringVar(&outCLI, "out-cli", "cmd/gen", "Output directory for generated CLI commands")
 	fs.StringVar(&outMCP, "out-mcp", "internal/mcp/gen", "Output directory for generated MCP tools")
+	fs.StringVar(&outOps, "out-ops", "internal/ops/gen", "Output directory for generated operation descriptors")
 	fs.BoolVar(&dryRun, "dry-run", false, "Show what would be generated without writing files")
 	fs.BoolVar(&showHelp, "help", false, "Show help message")
 	fs.Usage = func() {
@@ -91,6 +111,9 @@ func run(args []string) error {
 		return err
 	}
 	if err := writeMCPRegistryFile(outMCP, methods, dryRun); err != nil {
+		return err
+	}
+	if err := writeOperationDescriptorFile(outOps, methods, dryRun); err != nil {
 		return err
 	}
 	return nil
@@ -141,9 +164,10 @@ func collectInterfaceMethods(iface *ast.InterfaceType, interfaces map[string]*as
 		fn, _ := field.Type.(*ast.FuncType)
 		for _, name := range field.Names {
 			methods = append(methods, serviceMethod{
-				Name:   name.Name,
-				Doc:    strings.TrimSpace(field.Doc.Text()),
-				Params: paramNames(fn),
+				Name:    name.Name,
+				Doc:     strings.TrimSpace(field.Doc.Text()),
+				Params:  methodParams(fn),
+				Results: methodResults(fn),
 			})
 		}
 	}
@@ -151,22 +175,79 @@ func collectInterfaceMethods(iface *ast.InterfaceType, interfaces map[string]*as
 }
 
 func paramNames(fn *ast.FuncType) []string {
+	params := methodParams(fn)
+	names := make([]string, 0, len(params))
+	for _, param := range params {
+		names = append(names, param.Name)
+	}
+	return names
+}
+
+func methodParams(fn *ast.FuncType) []methodParam {
 	if fn == nil || fn.Params == nil {
 		return nil
 	}
-	params := []string{}
+	params := []methodParam{}
 	unnamed := 1
 	for _, field := range fn.Params.List {
+		typeName := exprString(field.Type)
 		if len(field.Names) == 0 {
-			params = append(params, fmt.Sprintf("param%d", unnamed))
+			name := fmt.Sprintf("param%d", unnamed)
+			params = append(params, methodParam{Name: name, ExternalName: externalName(name), Type: typeName, Kind: inputKind(typeName)})
 			unnamed++
 			continue
 		}
 		for _, name := range field.Names {
-			params = append(params, name.Name)
+			params = append(params, methodParam{Name: name.Name, ExternalName: externalName(name.Name), Type: typeName, Kind: inputKind(typeName)})
 		}
 	}
 	return params
+}
+
+func methodResults(fn *ast.FuncType) []methodResult {
+	if fn == nil || fn.Results == nil {
+		return nil
+	}
+	results := []methodResult{}
+	unnamed := 1
+	for _, field := range fn.Results.List {
+		typeName := exprString(field.Type)
+		if len(field.Names) == 0 {
+			results = append(results, methodResult{Name: fmt.Sprintf("result%d", unnamed), Type: typeName})
+			unnamed++
+			continue
+		}
+		for _, name := range field.Names {
+			results = append(results, methodResult{Name: name.Name, Type: typeName})
+		}
+	}
+	return results
+}
+
+func exprString(expr ast.Expr) string {
+	var b strings.Builder
+	if err := format.Node(&b, token.NewFileSet(), expr); err != nil {
+		return ""
+	}
+	return b.String()
+}
+
+func inputKind(typeName string) string {
+	switch typeName {
+	case "context.Context":
+		return "context"
+	case "string", "bool", "int", "int64", "float64":
+		return "primitive"
+	default:
+		return "struct"
+	}
+}
+
+func externalName(name string) string {
+	if name == "ctx" {
+		return "context"
+	}
+	return snakeCase(name)
 }
 
 func writeCLIRuntimeFile(dir string, dryRun bool) error {
@@ -224,6 +305,95 @@ func writeMCPRegistryFile(dir string, methods []serviceMethod, dryRun bool) erro
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	return nil
+}
+
+func writeOperationDescriptorFile(dir string, methods []serviceMethod, dryRun bool) error {
+	path := filepath.Join(dir, "operations.go")
+	if dryRun {
+		fmt.Printf("would write %s\n", path)
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create output dir %s: %w", dir, err)
+	}
+	content, err := operationDescriptorContent(methods)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
+func operationDescriptorContent(methods []serviceMethod) (string, error) {
+	var ops strings.Builder
+	for _, method := range methods {
+		doc := method.Doc
+		if doc == "" {
+			doc = method.Name + " invokes service.Service." + method.Name
+		}
+		operationName := snakeCase(method.Name)
+		fmt.Fprintf(&ops, "	{\n")
+		fmt.Fprintf(&ops, "		MethodName: %s,\n", strconv.Quote(method.Name))
+		fmt.Fprintf(&ops, "		OperationName: %s,\n", strconv.Quote(operationName))
+		fmt.Fprintf(&ops, "		Description: %s,\n", strconv.Quote(doc))
+		fmt.Fprintf(&ops, "		CLIName: %s,\n", strconv.Quote(cliCommandName(method.Name, operationName)))
+		fmt.Fprintf(&ops, "		MCPName: %s,\n", strconv.Quote(operationName))
+		fmt.Fprintf(&ops, "		HTTPRoute: %s,\n", strconv.Quote("/v1/operations/"+operationName))
+		fmt.Fprintf(&ops, "		Inputs: []InputDescriptor{%s},\n", inputDescriptors(operationInputs(method)))
+		fmt.Fprintf(&ops, "		Outputs: []OutputDescriptor{%s},\n", outputDescriptors(method.Results))
+		fmt.Fprintf(&ops, "	},\n")
+	}
+
+	return formatGo(fmt.Sprintf(`// Code generated by creed-codegen; DO NOT EDIT.
+
+// Package gen contains generated operation descriptors derived from service.Service.
+package gen
+
+// OperationDescriptor describes one service.Service operation for generated surfaces.
+type OperationDescriptor struct {
+	MethodName    string
+	OperationName string
+	Description   string
+	CLIName       string
+	MCPName       string
+	HTTPRoute     string
+	Inputs        []InputDescriptor
+	Outputs       []OutputDescriptor
+}
+
+// InputDescriptor describes one generated operation input.
+type InputDescriptor struct {
+	Name         string
+	ExternalName string
+	Type         string
+	Kind         string
+	Required     bool
+	CLIKind      string
+	Help         string
+}
+
+// OutputDescriptor describes one generated operation output.
+type OutputDescriptor struct {
+	Name string
+	Type string
+}
+
+// Operations contains one descriptor per service.Service method.
+var Operations = []OperationDescriptor{
+%s}
+
+// ByOperationName returns the descriptor for operationName, if generated.
+func ByOperationName(operationName string) (OperationDescriptor, bool) {
+	for _, operation := range Operations {
+		if operation.OperationName == operationName {
+			return operation, true
+		}
+	}
+	return OperationDescriptor{}, false
+}
+`, ops.String()))
 }
 
 func mcpRegistryContent(methods []serviceMethod) (string, error) {
@@ -289,7 +459,7 @@ func New%[2]sCommand(s service.Service) *cobra.Command {
 	}
 %[8]s	return cmd
 }
-`, name, method.Name, doc, quotedList(method.Params), cliUse(method.Name, name), cliArgs(method.Name), cliRunner(method.Name), cliExtra(method.Name)))
+`, name, method.Name, doc, quotedList(paramNamesFrom(method.Params)), cliUse(method.Name, name), cliArgs(method.Name), cliRunner(method.Name), cliExtra(method.Name)))
 	case "MCP":
 		return formatGo(fmt.Sprintf(`// Code generated by creed-codegen; DO NOT EDIT.
 
@@ -303,7 +473,7 @@ const %[2]sToolDescription = %[3]q
 
 // %[2]sToolParams are parameter names extracted from service.Service.%[2]s.
 var %[2]sToolParams = []string{%[4]s}
-`, name, method.Name, doc, quotedList(method.Params)))
+`, name, method.Name, doc, quotedList(paramNamesFrom(method.Params))))
 	default:
 		return "// Code generated by creed-codegen; DO NOT EDIT.\n\npackage gen\n", nil
 	}
@@ -331,6 +501,77 @@ func quotedList(values []string) string {
 		quoted = append(quoted, fmt.Sprintf("%q", value))
 	}
 	return strings.Join(quoted, ", ")
+}
+
+func paramNamesFrom(params []methodParam) []string {
+	names := make([]string, 0, len(params))
+	for _, param := range params {
+		names = append(names, param.Name)
+	}
+	return names
+}
+
+func inputDescriptors(params []methodParam) string {
+	parts := make([]string, 0, len(params))
+	for _, param := range params {
+		parts = append(parts, fmt.Sprintf("{Name: %s, ExternalName: %s, Type: %s, Kind: %s, Required: %t, CLIKind: %s, Help: %s}",
+			strconv.Quote(param.Name),
+			strconv.Quote(param.ExternalName),
+			strconv.Quote(param.Type),
+			strconv.Quote(param.Kind),
+			param.Required,
+			strconv.Quote(param.CLIKind),
+			strconv.Quote(param.Help),
+		))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func operationInputs(method serviceMethod) []methodParam {
+	switch method.Name {
+	case "Init":
+		return []methodParam{{Name: "projectName", ExternalName: "project_name", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Project name for the generated scaffold."}}
+	case "Sync":
+		return []methodParam{
+			{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", CLIKind: "flag", Help: "Emit for a specific target (claude, cursor, codex, windsurf, aider)."},
+			{Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Show files that would be emitted without writing."},
+			{Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Rewrite files even when content is unchanged."},
+		}
+	case "AddSkill":
+		return []methodParam{
+			{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Skill name."},
+			{Name: "sourcePath", ExternalName: "source_path", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional source skill file path."},
+		}
+	case "RemoveSkill", "EnableTarget", "DisableTarget":
+		return []methodParam{{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Target or skill name."}}
+	case "Pull", "Push":
+		return []methodParam{{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional git remote URL override."}}
+	default:
+		return nonContextParams(method.Params)
+	}
+}
+
+func nonContextParams(params []methodParam) []methodParam {
+	filtered := make([]methodParam, 0, len(params))
+	for _, param := range params {
+		if param.Kind == "context" || param.Type == "context.Context" {
+			continue
+		}
+		filtered = append(filtered, param)
+	}
+	return filtered
+}
+
+func outputDescriptors(results []methodResult) string {
+	parts := make([]string, 0, len(results))
+	for _, result := range results {
+		parts = append(parts, fmt.Sprintf("{Name: %s, Type: %s}", strconv.Quote(result.Name), strconv.Quote(result.Type)))
+	}
+	return strings.Join(parts, ", ")
+}
+
+func cliCommandName(methodName, fallback string) string {
+	return strings.Fields(cliUse(methodName, fallback))[0]
 }
 
 func cliUse(methodName, fallback string) string {
@@ -533,9 +774,14 @@ func runPush(cmd *cobra.Command, s service.Service, args []string) error {
 
 func snakeCase(name string) string {
 	var out strings.Builder
-	for i, r := range name {
+	runes := []rune(name)
+	for i, r := range runes {
 		if i > 0 && unicode.IsUpper(r) {
-			out.WriteByte('_')
+			prev := runes[i-1]
+			nextLower := i+1 < len(runes) && unicode.IsLower(runes[i+1])
+			if unicode.IsLower(prev) || unicode.IsDigit(prev) || nextLower {
+				out.WriteByte('_')
+			}
 		}
 		out.WriteRune(unicode.ToLower(r))
 	}
