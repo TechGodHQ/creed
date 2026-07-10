@@ -355,11 +355,11 @@ func isSupportedStructParam(typeName string, structs map[string]structInfo) bool
 		return false
 	}
 	for _, field := range info.Fields {
-		if !ast.IsExported(field.Name) {
-			continue
-		}
 		if field.Embedded {
 			return false
+		}
+		if !ast.IsExported(field.Name) {
+			continue
 		}
 		if field.JSONTag == "" || field.JSONTag == "-" {
 			return false

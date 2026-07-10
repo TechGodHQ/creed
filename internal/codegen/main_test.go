@@ -231,13 +231,16 @@ func TestServiceMethodsRejectsUnsupportedInputShapes(t *testing.T) {
 	fixture := "package fixture\n\n" +
 		"import \"context\"\n\n" +
 		"type Base struct {\n	Name string\n}\n\n" +
+		"type base struct {\n	Name string `json:\"name\"`\n}\n\n" +
 		"type MissingTagsOptions struct {\n	Name string\n}\n\n" +
 		"type EmbeddedRequest struct {\n	Base\n}\n\n" +
+		"type UnexportedEmbeddedRequest struct {\n	base\n}\n\n" +
 		"type TaggedRequest struct {\n	Name string `json:\"name\"`\n	private string\n}\n\n" +
 		"type Service interface {\n" +
 		"	Good(ctx context.Context, req TaggedRequest) error\n" +
 		"	BadStruct(ctx context.Context, opts MissingTagsOptions) error\n" +
 		"	BadEmbedded(ctx context.Context, req EmbeddedRequest) error\n" +
+		"	BadUnexportedEmbedded(ctx context.Context, req UnexportedEmbeddedRequest) error\n" +
 		"	BadSlice(ctx context.Context, names []string) error\n" +
 		"}\n"
 	if err := os.WriteFile(serviceFile, []byte(fixture), 0o644); err != nil {
@@ -253,6 +256,7 @@ func TestServiceMethodsRejectsUnsupportedInputShapes(t *testing.T) {
 		"service interface contains unsupported generated input shapes",
 		"BadStruct.opts has unsupported input type MissingTagsOptions",
 		"BadEmbedded.req has unsupported input type EmbeddedRequest",
+		"BadUnexportedEmbedded.req has unsupported input type UnexportedEmbeddedRequest",
 		"BadSlice.names has unsupported input type []string",
 		"struct Options/Request params with json tags",
 	} {
