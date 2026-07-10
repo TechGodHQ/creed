@@ -14,6 +14,7 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strconv"
 	"strings"
 	"unicode"
@@ -57,6 +58,17 @@ type methodParam struct {
 type methodResult struct {
 	Name string
 	Type string
+}
+
+type structInfo struct {
+	Name   string
+	Fields []structField
+}
+
+type structField struct {
+	Name     string
+	JSONTag  string
+	Embedded bool
 }
 
 func main() {
@@ -145,7 +157,215 @@ func serviceMethods(path string) ([]serviceMethod, error) {
 	if !ok {
 		return nil, fmt.Errorf("Service interface not found in %s", path)
 	}
-	return collectInterfaceMethods(service, interfaces, map[string]bool{"Service": true}), nil
+	methods := collectInterfaceMethods(service, interfaces, map[string]bool{"Service": true})
+	structs := collectStructsForService(path, file)
+	if err := validateServiceMethods(methods, structs); err != nil {
+		return nil, err
+	}
+	return methods, nil
+}
+
+func collectStructsForService(path string, file *ast.File) map[string]structInfo {
+	structs := collectStructs(file, "")
+	serviceDir := filepath.Dir(path)
+	for _, parsed := range parsePackageFiles(serviceDir, filepath.Base(path)) {
+		mergeStructs(structs, collectStructs(parsed, ""))
+	}
+	modulePath := modulePathFor(path)
+	if modulePath == "" || file.Imports == nil {
+		return structs
+	}
+	for _, importSpec := range file.Imports {
+		importPath, err := strconv.Unquote(importSpec.Path.Value)
+		if err != nil || !strings.HasPrefix(importPath, modulePath+"/") {
+			continue
+		}
+		pkgDir := filepath.Join(moduleRootFor(path), strings.TrimPrefix(importPath, modulePath+"/"))
+		pkgName := packageNameForDir(pkgDir)
+		if pkgName == "" {
+			pkgName = filepath.Base(importPath)
+		}
+		if importSpec.Name != nil && importSpec.Name.Name != "_" && importSpec.Name.Name != "." {
+			pkgName = importSpec.Name.Name
+		}
+		for _, parsed := range parsePackageFiles(pkgDir, "") {
+			mergeStructs(structs, collectStructs(parsed, pkgName))
+		}
+	}
+	return structs
+}
+
+func collectStructs(file *ast.File, qualifier string) map[string]structInfo {
+	structs := map[string]structInfo{}
+	for _, decl := range file.Decls {
+		gen, ok := decl.(*ast.GenDecl)
+		if !ok || gen.Tok != token.TYPE {
+			continue
+		}
+		for _, spec := range gen.Specs {
+			typeSpec, ok := spec.(*ast.TypeSpec)
+			if !ok {
+				continue
+			}
+			structType, ok := typeSpec.Type.(*ast.StructType)
+			if !ok {
+				continue
+			}
+			info := structInfo{Name: typeSpec.Name.Name}
+			if qualifier != "" {
+				info.Name = qualifier + "." + info.Name
+			}
+			if structType.Fields != nil {
+				for _, field := range structType.Fields.List {
+					jsonTag := ""
+					if field.Tag != nil {
+						if tag, err := strconv.Unquote(field.Tag.Value); err == nil {
+							jsonTag = reflect.StructTag(tag).Get("json")
+						}
+					}
+					if len(field.Names) == 0 {
+						if name := embeddedFieldName(field.Type); name != "" {
+							info.Fields = append(info.Fields, structField{Name: name, JSONTag: jsonTag, Embedded: true})
+						}
+						continue
+					}
+					for _, name := range field.Names {
+						info.Fields = append(info.Fields, structField{Name: name.Name, JSONTag: jsonTag})
+					}
+				}
+			}
+			structs[info.Name] = info
+		}
+	}
+	return structs
+}
+
+func parsePackageFiles(dir, skipBase string) []*ast.File {
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil
+	}
+	files := []*ast.File{}
+	for _, entry := range entries {
+		name := entry.Name()
+		if entry.IsDir() || name == skipBase || !strings.HasSuffix(name, ".go") || strings.HasSuffix(name, "_test.go") {
+			continue
+		}
+		parsed, err := parser.ParseFile(token.NewFileSet(), filepath.Join(dir, name), nil, parser.ParseComments)
+		if err != nil {
+			continue
+		}
+		files = append(files, parsed)
+	}
+	return files
+}
+
+func packageNameForDir(dir string) string {
+	for _, file := range parsePackageFiles(dir, "") {
+		if file.Name != nil {
+			return file.Name.Name
+		}
+	}
+	return ""
+}
+
+func mergeStructs(dst, src map[string]structInfo) {
+	for name, info := range src {
+		dst[name] = info
+	}
+}
+
+func modulePathFor(path string) string {
+	root := moduleRootFor(path)
+	if root == "" {
+		return ""
+	}
+	data, err := os.ReadFile(filepath.Join(root, "go.mod"))
+	if err != nil {
+		return ""
+	}
+	for _, line := range strings.Split(string(data), "\n") {
+		line = strings.TrimSpace(line)
+		if strings.HasPrefix(line, "module ") {
+			return strings.TrimSpace(strings.TrimPrefix(line, "module "))
+		}
+	}
+	return ""
+}
+
+func moduleRootFor(path string) string {
+	dir := filepath.Dir(path)
+	for {
+		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
+			return dir
+		}
+		parent := filepath.Dir(dir)
+		if parent == dir {
+			return ""
+		}
+		dir = parent
+	}
+}
+
+func embeddedFieldName(expr ast.Expr) string {
+	switch typed := expr.(type) {
+	case *ast.Ident:
+		return typed.Name
+	case *ast.SelectorExpr:
+		return typed.Sel.Name
+	case *ast.StarExpr:
+		return embeddedFieldName(typed.X)
+	default:
+		return ""
+	}
+}
+
+func validateServiceMethods(methods []serviceMethod, structs map[string]structInfo) error {
+	var problems []string
+	for _, method := range methods {
+		for _, param := range method.Params {
+			switch param.Kind {
+			case "context", "primitive":
+				continue
+			}
+			if !isSupportedStructParam(param.Type, structs) {
+				problems = append(problems, fmt.Sprintf("%s.%s has unsupported input type %s; supported inputs are context.Context, primitive params (string, bool, int, int64, float64), no-input methods, and struct Options/Request params with json tags", method.Name, param.Name, param.Type))
+			}
+		}
+	}
+	if len(problems) > 0 {
+		return fmt.Errorf("service interface contains unsupported generated input shapes:\n- %s", strings.Join(problems, "\n- "))
+	}
+	return nil
+}
+
+func isSupportedStructParam(typeName string, structs map[string]structInfo) bool {
+	if strings.HasPrefix(typeName, "[]") || strings.HasPrefix(typeName, "*") || strings.HasPrefix(typeName, "map[") || strings.HasPrefix(typeName, "chan ") || strings.Contains(typeName, " chan ") {
+		return false
+	}
+	shortName := typeName
+	if idx := strings.LastIndex(shortName, "."); idx >= 0 {
+		shortName = shortName[idx+1:]
+	}
+	if !(strings.HasSuffix(shortName, "Options") || strings.HasSuffix(shortName, "Request")) {
+		return false
+	}
+	info, ok := structs[typeName]
+	if !ok {
+		return false
+	}
+	for _, field := range info.Fields {
+		if field.Embedded {
+			return false
+		}
+		if !ast.IsExported(field.Name) {
+			continue
+		}
+		if field.JSONTag == "" || field.JSONTag == "-" {
+			return false
+		}
+	}
+	return true
 }
 
 func collectInterfaceMethods(iface *ast.InterfaceType, interfaces map[string]*ast.InterfaceType, seen map[string]bool) []serviceMethod {

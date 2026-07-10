@@ -62,6 +62,14 @@ The current `Service` interface mixes shapes:
 
 For short-term compatibility, support the existing shapes. For long-term generation quality, prefer request DTOs for new operations:
 
+Generator-supported input shapes are intentionally narrow:
+
+- `context.Context` parameters are allowed and are omitted from external operation inputs.
+- no-input methods after `context.Context` are allowed.
+- primitive params are allowed for `string`, `bool`, `int`, `int64`, and `float64`.
+- struct params are allowed only for DTO-like `Options` or `Request` types. The generator loads local project package types used by `Service`; every exported field on those DTOs must have a JSON tag. Embedded fields are not supported for generated operation input DTOs because their flattened JSON shape is ambiguous for generated CLI/MCP/HTTP surfaces.
+- slices, maps, channels, pointers, and arbitrary structs are not generated. Unsupported shapes fail generation with method/parameter-specific errors rather than silently producing partial surfaces.
+
 ```go
 type AddSkillRequest struct {
     Name string `json:"name" cli:"arg,required" help:"Skill name"`

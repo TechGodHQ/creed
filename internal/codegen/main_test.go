@@ -104,20 +104,20 @@ func TestServiceMethodsExtractsAllNamesCommentsAndParams(t *testing.T) {
 	serviceFile := filepath.Join(t.TempDir(), "service.go")
 	if err := os.WriteFile(serviceFile, []byte(`package fixture
 
+import "context"
+
 type Extra interface {
 	// ExtraThing does extra work.
-	ExtraThing(ctx Context) error
+	ExtraThing(ctx context.Context) error
 }
 
 type Service interface {
 	Extra
 	// First does the first thing.
-	First(ctx Context, name string) error
-	Second(ctx Context) error
-	Third(ctx Context) error
+	First(ctx context.Context, name string) error
+	Second(ctx context.Context) error
+	Third(ctx context.Context) error
 }
-
-type Context struct{}
 `), 0o644); err != nil {
 		t.Fatalf("write service fixture: %v", err)
 	}
@@ -193,6 +193,79 @@ func TestOperationDescriptorContentCoversInputShapes(t *testing.T) {
 	}
 	if strings.Contains(content, `ExternalName: "context"`) {
 		t.Fatalf("descriptor content should not expose context.Context as an operation input:\n%s", content)
+	}
+}
+
+func TestServiceMethodsValidatesProjectPackageStructTags(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "go.mod"), []byte("module example.test/fixture\n\ngo 1.23\n"), 0o644); err != nil {
+		t.Fatalf("write go.mod: %v", err)
+	}
+	requestDir := filepath.Join(root, "internal", "dtos", "v2")
+	serviceDir := filepath.Join(root, "internal", "service")
+	if err := os.MkdirAll(requestDir, 0o755); err != nil {
+		t.Fatalf("create request dir: %v", err)
+	}
+	if err := os.MkdirAll(serviceDir, 0o755); err != nil {
+		t.Fatalf("create service dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(requestDir, "options.go"), []byte("package requests\n\ntype SyncOptions struct {\n	Target string `json:\"target,omitempty\"`\n}\n"), 0o644); err != nil {
+		t.Fatalf("write request options: %v", err)
+	}
+	serviceFile := filepath.Join(serviceDir, "service.go")
+	if err := os.WriteFile(serviceFile, []byte("package service\n\nimport (\n	\"context\"\n	\"example.test/fixture/internal/dtos/v2\"\n)\n\ntype LocalRequest struct {\n	Name string `json:\"name\"`\n}\n\ntype Service interface {\n	Sync(ctx context.Context, opts requests.SyncOptions) error\n	Local(ctx context.Context, req LocalRequest) error\n}\n"), 0o644); err != nil {
+		t.Fatalf("write service file: %v", err)
+	}
+
+	methods, err := serviceMethods(serviceFile)
+	if err != nil {
+		t.Fatalf("serviceMethods() error = %v", err)
+	}
+	if len(methods) != 2 {
+		t.Fatalf("got %d methods, want 2: %#v", len(methods), methods)
+	}
+}
+
+func TestServiceMethodsRejectsUnsupportedInputShapes(t *testing.T) {
+	serviceFile := filepath.Join(t.TempDir(), "service.go")
+	fixture := "package fixture\n\n" +
+		"import \"context\"\n\n" +
+		"type Base struct {\n	Name string\n}\n\n" +
+		"type base struct {\n	Name string `json:\"name\"`\n}\n\n" +
+		"type MissingTagsOptions struct {\n	Name string\n}\n\n" +
+		"type EmbeddedRequest struct {\n	Base\n}\n\n" +
+		"type UnexportedEmbeddedRequest struct {\n	base\n}\n\n" +
+		"type TaggedRequest struct {\n	Name string `json:\"name\"`\n	private string\n}\n\n" +
+		"type Service interface {\n" +
+		"	Good(ctx context.Context, req TaggedRequest) error\n" +
+		"	BadStruct(ctx context.Context, opts MissingTagsOptions) error\n" +
+		"	BadEmbedded(ctx context.Context, req EmbeddedRequest) error\n" +
+		"	BadUnexportedEmbedded(ctx context.Context, req UnexportedEmbeddedRequest) error\n" +
+		"	BadSlice(ctx context.Context, names []string) error\n" +
+		"}\n"
+	if err := os.WriteFile(serviceFile, []byte(fixture), 0o644); err != nil {
+		t.Fatalf("write service fixture: %v", err)
+	}
+
+	_, err := serviceMethods(serviceFile)
+	if err == nil {
+		t.Fatalf("serviceMethods() error = nil, want unsupported input shape error")
+	}
+	message := err.Error()
+	for _, want := range []string{
+		"service interface contains unsupported generated input shapes",
+		"BadStruct.opts has unsupported input type MissingTagsOptions",
+		"BadEmbedded.req has unsupported input type EmbeddedRequest",
+		"BadUnexportedEmbedded.req has unsupported input type UnexportedEmbeddedRequest",
+		"BadSlice.names has unsupported input type []string",
+		"struct Options/Request params with json tags",
+	} {
+		if !strings.Contains(message, want) {
+			t.Fatalf("error missing %q:\n%s", want, message)
+		}
+	}
+	if strings.Contains(message, "Good.req") {
+		t.Fatalf("supported tagged request was rejected:\n%s", message)
 	}
 }
 
