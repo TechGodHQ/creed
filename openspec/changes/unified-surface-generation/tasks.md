@@ -12,7 +12,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
 
 ### 1) Operation descriptor foundation
 
-- [ ] **T1: Generate shared operation descriptors from Service** *(~2h)* — Linear: COD-333
+- [x] **T1: Generate shared operation descriptors from Service** *(~2h)* — Linear: COD-333
   - **Files:** `internal/codegen/`, generated descriptor package/files, tests
   - **Do:** extract service method name, operation name, doc comment, params/input shape, output metadata, and stable per-surface names into a generated descriptor set.
   - **Verify:** generator tests assert descriptors for `Sync`, `AddSkill`, `ListTargets`, and no-input/simple-param/struct-param shapes.
