@@ -17,7 +17,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
   - **Do:** extract service method name, operation name, doc comment, params/input shape, output metadata, and stable per-surface names into a generated descriptor set.
   - **Verify:** generator tests assert descriptors for `Sync`, `AddSkill`, `ListTargets`, and no-input/simple-param/struct-param shapes.
 
-- [ ] **T2: Define supported input-shape rules and explicit failure behavior** *(~1h 30m)* — Linear: COD-334
+- [x] **T2: Define supported input-shape rules and explicit failure behavior** *(~1h 30m)* — Linear: COD-334
   - **Files:** `internal/codegen/`, tests, `openspec/changes/unified-surface-generation/design.md` if needed
   - **Do:** document and enforce supported shapes: `context.Context`, simple params, struct option/request params with JSON tags, no-input methods. Unsupported shapes must fail or emit explicit skip records.
   - **Verify:** fixture tests cover unsupported shapes and produce clear errors/skips.
