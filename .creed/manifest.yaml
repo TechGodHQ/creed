@@ -2,12 +2,30 @@ version: 1
 source:
   type: local
   path: .creed
-
 targets:
   - name: claude
     enabled: true
     output_dir: .
-
+  - name: cursor
+    enabled: true
+    output_dir: .
+  - name: codex
+    enabled: true
+    output_dir: .
+  - name: agents
+    enabled: true
+    output_dir: .
+  - name: windsurf
+    enabled: true
+    output_dir: .
+  - name: aider
+    enabled: true
+    output_dir: .
 skills:
-  - name: code-review
-    path: skills/code-review.md
+  - name: review
+    path: skills/review.md
+  - name: testing
+    path: skills/testing.md
+config:
+  - name: project
+    path: config/project.md
