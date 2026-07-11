@@ -17,7 +17,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
   - **Do:** replace ad-hoc output-kind branching with renderer helpers/registry for context, skill directory, config, and target-specific config outputs.
   - **Verify:** existing sync/usecase tests still pass; unknown output kind returns a structured target-level error instead of silently skipping.
 
-- [ ] **T2: Harden Aider renderer semantics** *(~1h)* — Linear: COD-327
+- [x] **T2: Harden Aider renderer semantics** *(~1h)* — Linear: COD-327
   - **Files:** `internal/usecase/sync.go`, `internal/usecase/*_test.go` or integration tests
   - **Do:** make `.aider.conf.yml` rendering deterministic and explicitly tied to the context descriptor path; ensure `CONVENTIONS.md` receives aggregated context/config content.
   - **Verify:** tests assert exact `.aider.conf.yml` content and `CONVENTIONS.md` content for a manifest with multiple config entries.

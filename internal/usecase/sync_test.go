@@ -680,6 +680,37 @@ func TestPrepareFiles_AiderWithoutConfigsDoesNotEmitDanglingConfig(t *testing.T)
 	}
 }
 
+func TestPrepareFiles_AiderConfigReferencesDescriptorContextPath(t *testing.T) {
+	target := &domain.Target{
+		Name:        "aider",
+		DisplayName: "Aider",
+		Outputs: func(string) []domain.TargetOutput {
+			return []domain.TargetOutput{
+				{Path: "docs/CONTEXT.md", Kind: domain.OutputKindContext, Format: "markdown"},
+				{Path: ".aider.conf.yml", Kind: domain.OutputKindConfig, Format: "yaml"},
+			}
+		},
+		EmitPaths: func(string) []string { return []string{".aider.conf.yml", "docs/CONTEXT.md"} },
+	}
+	configs := []domain.ConfigFile{
+		{Name: "project", Content: []byte("project context")},
+		{Name: "rules", Content: []byte("development rules")},
+	}
+
+	files, err := prepareFiles(target, nil, configs)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
+	byPath := emittedFilesByPath(files)
+
+	if got := string(byPath[".aider.conf.yml"].Content); got != "read:\n  - docs/CONTEXT.md\n" {
+		t.Fatalf("aider config should reference descriptor context path, got %q", got)
+	}
+	if got := string(byPath["docs/CONTEXT.md"].Content); got != "project context\n---\n\ndevelopment rules" {
+		t.Fatalf("context descriptor should receive aggregated configs, got %q", got)
+	}
+}
+
 // --- Helpers ---
 
 func emittedFilesByPath(files []ports.EmittedFile) map[string]ports.EmittedFile {
