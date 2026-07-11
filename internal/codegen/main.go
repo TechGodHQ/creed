@@ -1244,28 +1244,8 @@ func cliUse(methodName, fallback string) string {
 	}
 }
 
-func cliArgs(methodName string) string {
-	switch methodName {
-	case "AddSkill":
-		return "cobra.RangeArgs(1, 2)"
-	case "Init", "Pull", "Push":
-		return "cobra.MaximumNArgs(1)"
-	case "RemoveSkill", "EnableTarget", "DisableTarget":
-		return "cobra.ExactArgs(1)"
-	default:
-		return "cobra.NoArgs"
-	}
-}
-
 func cliRunner(methodName string) string {
 	return "run" + methodName
-}
-
-func cliExtra(methodName string) string {
-	if methodName != "Sync" {
-		return ""
-	}
-	return "	cmd.Flags().StringP(\"target\", \"t\", \"\", \"emit for a specific target (claude, cursor, codex, windsurf, aider)\")\n	cmd.Flags().Bool(\"dry-run\", false, \"show files that would be emitted without writing\")\n	cmd.Flags().Bool(\"force\", false, \"rewrite files even when content is unchanged\")\n"
 }
 
 const cliRuntimeSource = `package gen
