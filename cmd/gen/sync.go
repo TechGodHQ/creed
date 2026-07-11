@@ -5,33 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // SyncCommandSpec describes the generated CLI wrapper for service.Service.Sync.
 type SyncCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // SyncSpec is metadata extracted from service.Service.Sync.
 var SyncSpec = SyncCommandSpec{
-	MethodName: "Sync",
+	Operation:  mustOperation("Sync"),
 	ParamNames: []string{"ctx", "opts"},
 }
 
 // NewSyncCommand returns the generated Cobra command wrapper for service.Service.Sync.
 func NewSyncCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "sync",
-		Short: "Sync syncs configured Creed context to one or more targets.",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runSync(cmd, s, args)
-		},
-	}
-	cmd.Flags().StringP("target", "t", "", "emit for a specific target (claude, cursor, codex, windsurf, aider)")
-	cmd.Flags().Bool("dry-run", false, "show files that would be emitted without writing")
-	cmd.Flags().Bool("force", false, "rewrite files even when content is unchanged")
-	return cmd
+	return newGeneratedCommand(s, SyncSpec.Operation, runSync)
 }

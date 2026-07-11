@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // ListTargetsCommandSpec describes the generated CLI wrapper for service.Service.ListTargets.
 type ListTargetsCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // ListTargetsSpec is metadata extracted from service.Service.ListTargets.
 var ListTargetsSpec = ListTargetsCommandSpec{
-	MethodName: "ListTargets",
+	Operation:  mustOperation("ListTargets"),
 	ParamNames: []string{"ctx"},
 }
 
 // NewListTargetsCommand returns the generated Cobra command wrapper for service.Service.ListTargets.
 func NewListTargetsCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "list-targets",
-		Short: "ListTargets returns all known targets with manifest enablement metadata.",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runListTargets(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, ListTargetsSpec.Operation, runListTargets)
 }

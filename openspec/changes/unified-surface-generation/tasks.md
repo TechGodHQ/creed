@@ -33,7 +33,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
 
 ### 3) CLI generation hardening
 
-- [ ] **T4: Generate CLI args/flags/delegation from operation descriptors** *(~2h 30m)* — Linear: COD-336
+- [x] **T4: Generate CLI args/flags/delegation from operation descriptors** *(~2h 30m)* — Linear: COD-336
   - **Files:** `internal/codegen/`, `cmd/gen/`, `cmd/generated.go`, CLI tests
   - **Do:** make CLI commands consume descriptors for names, args, flags, help text, and service delegation while preserving existing command names and output semantics.
   - **Verify:** `sync`, `init`, `add-skill`, `list-targets` behavior remains compatible; fixture operation generates a callable CLI command.

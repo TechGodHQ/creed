@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // RemoveSkillCommandSpec describes the generated CLI wrapper for service.Service.RemoveSkill.
 type RemoveSkillCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // RemoveSkillSpec is metadata extracted from service.Service.RemoveSkill.
 var RemoveSkillSpec = RemoveSkillCommandSpec{
-	MethodName: "RemoveSkill",
+	Operation:  mustOperation("RemoveSkill"),
 	ParamNames: []string{"ctx", "name"},
 }
 
 // NewRemoveSkillCommand returns the generated Cobra command wrapper for service.Service.RemoveSkill.
 func NewRemoveSkillCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "remove-skill <name>",
-		Short: "RemoveSkill removes a skill registration from the manifest.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runRemoveSkill(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, RemoveSkillSpec.Operation, runRemoveSkill)
 }

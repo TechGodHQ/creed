@@ -25,10 +25,6 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	rootCmd.SetVersionTemplate("creed {{.Version}}\n")
-	addTargetFlag(syncCmd)
-	syncCmd.Flags().BoolVar(&syncDryRun, "dry-run", false, "show files that would be emitted without writing")
-	syncCmd.Flags().BoolVar(&syncForce, "force", false, "rewrite files even when content is unchanged")
-	rootCmd.AddCommand(initCmd, syncCmd)
 	registerGeneratedCommands(rootCmd, service.New("."))
 }
 

@@ -145,3 +145,13 @@ func ByOperationName(operationName string) (OperationDescriptor, bool) {
 	}
 	return OperationDescriptor{}, false
 }
+
+// ByMethodName returns the descriptor for methodName, if generated.
+func ByMethodName(methodName string) (OperationDescriptor, bool) {
+	for _, operation := range Operations {
+		if operation.MethodName == methodName {
+			return operation, true
+		}
+	}
+	return OperationDescriptor{}, false
+}

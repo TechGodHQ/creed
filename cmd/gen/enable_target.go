@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // EnableTargetCommandSpec describes the generated CLI wrapper for service.Service.EnableTarget.
 type EnableTargetCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // EnableTargetSpec is metadata extracted from service.Service.EnableTarget.
 var EnableTargetSpec = EnableTargetCommandSpec{
-	MethodName: "EnableTarget",
+	Operation:  mustOperation("EnableTarget"),
 	ParamNames: []string{"ctx", "name"},
 }
 
 // NewEnableTargetCommand returns the generated Cobra command wrapper for service.Service.EnableTarget.
 func NewEnableTargetCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "enable-target <name>",
-		Short: "EnableTarget enables a target in the manifest, creating it if needed.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runEnableTarget(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, EnableTargetSpec.Operation, runEnableTarget)
 }

@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // AddSkillCommandSpec describes the generated CLI wrapper for service.Service.AddSkill.
 type AddSkillCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // AddSkillSpec is metadata extracted from service.Service.AddSkill.
 var AddSkillSpec = AddSkillCommandSpec{
-	MethodName: "AddSkill",
+	Operation:  mustOperation("AddSkill"),
 	ParamNames: []string{"ctx", "name", "sourcePath"},
 }
 
 // NewAddSkillCommand returns the generated Cobra command wrapper for service.Service.AddSkill.
 func NewAddSkillCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "add-skill <name> [source-path]",
-		Short: "AddSkill registers a skill file in the manifest.",
-		Args:  cobra.RangeArgs(1, 2),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runAddSkill(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, AddSkillSpec.Operation, runAddSkill)
 }
