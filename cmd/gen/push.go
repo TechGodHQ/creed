@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // PushCommandSpec describes the generated CLI wrapper for service.Service.Push.
 type PushCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // PushSpec is metadata extracted from service.Service.Push.
 var PushSpec = PushCommandSpec{
-	MethodName: "Push",
+	Operation:  mustOperation("Push"),
 	ParamNames: []string{"ctx", "remoteURL"},
 }
 
 // NewPushCommand returns the generated Cobra command wrapper for service.Service.Push.
 func NewPushCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "push [remote-url]",
-		Short: "Push publishes local source changes to the configured remote.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPush(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, PushSpec.Operation, runPush)
 }

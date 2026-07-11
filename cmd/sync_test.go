@@ -78,8 +78,6 @@ func executeRootCommandInDir(t *testing.T, dir string, args ...string) bytes.Buf
 	}()
 
 	var out bytes.Buffer
-	syncDryRun = false
-	syncForce = false
 	rootCmd.SetOut(&out)
 	rootCmd.SetErr(&out)
 	rootCmd.SetArgs(args)
@@ -87,8 +85,6 @@ func executeRootCommandInDir(t *testing.T, dir string, args ...string) bytes.Buf
 		rootCmd.SetOut(os.Stdout)
 		rootCmd.SetErr(os.Stderr)
 		rootCmd.SetArgs(nil)
-		syncDryRun = false
-		syncForce = false
 	}()
 
 	if err := rootCmd.Execute(); err != nil {

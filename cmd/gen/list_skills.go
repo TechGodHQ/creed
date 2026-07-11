@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // ListSkillsCommandSpec describes the generated CLI wrapper for service.Service.ListSkills.
 type ListSkillsCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // ListSkillsSpec is metadata extracted from service.Service.ListSkills.
 var ListSkillsSpec = ListSkillsCommandSpec{
-	MethodName: "ListSkills",
+	Operation:  mustOperation("ListSkills"),
 	ParamNames: []string{"ctx"},
 }
 
 // NewListSkillsCommand returns the generated Cobra command wrapper for service.Service.ListSkills.
 func NewListSkillsCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "list-skills",
-		Short: "ListSkills returns all registered skills.",
-		Args:  cobra.NoArgs,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runListSkills(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, ListSkillsSpec.Operation, runListSkills)
 }

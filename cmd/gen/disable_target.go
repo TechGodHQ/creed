@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // DisableTargetCommandSpec describes the generated CLI wrapper for service.Service.DisableTarget.
 type DisableTargetCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // DisableTargetSpec is metadata extracted from service.Service.DisableTarget.
 var DisableTargetSpec = DisableTargetCommandSpec{
-	MethodName: "DisableTarget",
+	Operation:  mustOperation("DisableTarget"),
 	ParamNames: []string{"ctx", "name"},
 }
 
 // NewDisableTargetCommand returns the generated Cobra command wrapper for service.Service.DisableTarget.
 func NewDisableTargetCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "disable-target <name>",
-		Short: "DisableTarget disables a target in the manifest, creating it if needed.",
-		Args:  cobra.ExactArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runDisableTarget(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, DisableTargetSpec.Operation, runDisableTarget)
 }

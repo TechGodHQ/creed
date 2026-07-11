@@ -45,17 +45,51 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 	if !strings.Contains(string(cliSync), "func NewSyncCommand(s service.Service) *cobra.Command") {
 		t.Fatalf("generated CLI sync file does not expose NewSyncCommand wrapper:\n%s", string(cliSync))
 	}
-	if !strings.Contains(string(cliSync), `Use:   "sync"`) {
-		t.Fatalf("generated CLI sync file does not use snake_case command name:\n%s", string(cliSync))
+	if !strings.Contains(string(cliSync), `Operation:  mustOperation("Sync")`) {
+		t.Fatalf("generated CLI sync file does not consume the operation descriptor:\n%s", string(cliSync))
 	}
-	if !strings.Contains(string(cliSync), `Short: "Sync syncs configured Creed context to one or more targets."`) {
-		t.Fatalf("generated CLI sync file does not use Service doc comment:\n%s", string(cliSync))
+	if !strings.Contains(string(cliSync), `return newGeneratedCommand(s, SyncSpec.Operation, runSync)`) {
+		t.Fatalf("generated CLI sync file does not delegate through descriptor-driven runtime:\n%s", string(cliSync))
 	}
 	if !strings.Contains(string(cliSync), `ParamNames: []string{"ctx", "opts"}`) {
 		t.Fatalf("generated CLI sync file does not expose parameter metadata:\n%s", string(cliSync))
 	}
 	if strings.Contains(string(cliSync), "not wired yet") {
 		t.Fatalf("generated CLI sync file should not emit unwired runtime errors:\n%s", string(cliSync))
+	}
+
+	cliRuntime, err := os.ReadFile(filepath.Join(outCLI, "runtime.go"))
+	if err != nil {
+		t.Fatalf("read generated CLI runtime file: %v", err)
+	}
+	cliRuntimeContent := string(cliRuntime)
+	for _, want := range []string{
+		`func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor, runner commandRunner) *cobra.Command`,
+		`Use:   cliUse(operation)`,
+		`Short: operation.Description`,
+		`cmd.Flags().StringP(flagName, "t", "", help)`,
+	} {
+		if !strings.Contains(cliRuntimeContent, want) {
+			t.Fatalf("generated CLI runtime missing %q:\n%s", want, cliRuntimeContent)
+		}
+	}
+
+	cliHandlers, err := os.ReadFile(filepath.Join(outCLI, "handlers.go"))
+	if err != nil {
+		t.Fatalf("read generated CLI handlers file: %v", err)
+	}
+	cliHandlersContent := string(cliHandlers)
+	for _, want := range []string{
+		`func runSync(cmd *cobra.Command, s service.Service, args []string) error`,
+		`target, err := stringFlag(cmd, "target")`,
+		`dryRun, err := boolFlag(cmd, "dry_run")`,
+		`result, err := s.Sync(cmd.Context(), usecase.SyncOptions{Target: target, DryRun: dryRun, Force: force})`,
+		`func runAddSkill(cmd *cobra.Command, s service.Service, args []string) error`,
+		`if err := s.AddSkill(cmd.Context(), name, sourcePath); err != nil`,
+	} {
+		if !strings.Contains(cliHandlersContent, want) {
+			t.Fatalf("generated CLI handlers missing %q:\n%s", want, cliHandlersContent)
+		}
 	}
 
 	mcpSync, err := os.ReadFile(filepath.Join(outMCP, "sync.go"))
@@ -204,7 +238,7 @@ func TestOperationDescriptorContentCoversInputShapes(t *testing.T) {
 	for _, want := range []string{
 		`OperationName: "no_input"`,
 		`OperationName: "simple_param"`,
-		`Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: false`,
+		`Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg"`,
 		`OperationName: "struct_param"`,
 		`Name: "opts", ExternalName: "opts", Type: "Options", Kind: "struct", Required: false`,
 		`[]OutputDescriptor{{Name: "result1", Type: "Result"}, {Name: "result2", Type: "error"}}`,
@@ -239,9 +273,9 @@ func TestMCPHandlersContentGeneratesCallableNewPrimitiveOperation(t *testing.T) 
 	for _, want := range []string{
 		`{Spec: PingToolSpec(), Tool: PingMCPTool(), Handler: PingMCPHandler(s)}`,
 		`type pingRequest struct`,
-		`Message string ` + "`json:\"message,omitempty\"`",
+		`Message string ` + "`json:\"message\"`",
 		`Count   int    ` + "`json:\"count,omitempty\"`",
-		`options = append(options, mcplib.WithString("message"))`,
+		`options = append(options, mcplib.WithString("message", mcplib.Required()))`,
 		`options = append(options, mcplib.WithInteger("count"))`,
 		`if err := s.Ping(ctx, req.Message, req.Count); err != nil`,
 	} {
@@ -251,6 +285,36 @@ func TestMCPHandlersContentGeneratesCallableNewPrimitiveOperation(t *testing.T) 
 	}
 	if strings.Contains(content, "switch") {
 		t.Fatalf("generated handler for a new operation should not require switch wiring:\n%s", content)
+	}
+}
+
+func TestCLIHandlersContentGeneratesCallableNewPrimitiveOperation(t *testing.T) {
+	methods := []serviceMethod{
+		{
+			Name: "Ping",
+			Doc:  "Ping checks generated CLI delegation.",
+			Params: []methodParam{
+				{Name: "ctx", ExternalName: "context", Type: "context.Context", Kind: "context"},
+				{Name: "message", ExternalName: "message", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg"},
+				{Name: "loud", ExternalName: "loud", Type: "bool", Kind: "primitive", CLIKind: "flag"},
+			},
+			Results: []methodResult{{Name: "result1", Type: "error"}},
+		},
+	}
+
+	content, err := cliHandlersContent(methods)
+	if err != nil {
+		t.Fatalf("cliHandlersContent() error = %v", err)
+	}
+	for _, want := range []string{
+		`func runPing(cmd *cobra.Command, s service.Service, args []string) error`,
+		`message := positionalInput(args, 0)`,
+		`loud, err := boolFlag(cmd, "loud")`,
+		`return s.Ping(cmd.Context(), message, loud)`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("generated CLI handler content missing %q:\n%s", want, content)
+		}
 	}
 }
 

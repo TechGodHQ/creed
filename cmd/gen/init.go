@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // InitCommandSpec describes the generated CLI wrapper for service.Service.Init.
 type InitCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // InitSpec is metadata extracted from service.Service.Init.
 var InitSpec = InitCommandSpec{
-	MethodName: "Init",
+	Operation:  mustOperation("Init"),
 	ParamNames: []string{"ctx", "projectName"},
 }
 
 // NewInitCommand returns the generated Cobra command wrapper for service.Service.Init.
 func NewInitCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "init [project-name]",
-		Short: "Init bootstraps a Creed project at the service root.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runInit(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, InitSpec.Operation, runInit)
 }

@@ -6,140 +6,105 @@ import (
 
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
-	"github.com/techgodhq/creed/internal/usecase"
 )
 
-func runInit(cmd *cobra.Command, s service.Service, args []string) error {
-	projectName := ""
-	if len(args) > 0 {
-		projectName = args[0]
+type commandRunner func(*cobra.Command, service.Service, []string) error
+
+func mustOperation(methodName string) opsgen.OperationDescriptor {
+	operation, ok := opsgen.ByMethodName(methodName)
+	if !ok {
+		panic(fmt.Sprintf("generated CLI operation %s missing descriptor", methodName))
 	}
-	if err := s.Init(cmd.Context(), projectName); err != nil {
-		return err
-	}
-	fmt.Fprintln(cmd.OutOrStdout(), "Initialized creed project")
-	return nil
+	return operation
 }
 
-func runSync(cmd *cobra.Command, s service.Service, _ []string) error {
-	target, err := cmd.Flags().GetString("target")
-	if err != nil {
-		return fmt.Errorf("failed to read --target flag: %w", err)
+func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor, runner commandRunner) *cobra.Command {
+	cmd := &cobra.Command{
+		Use:   cliUse(operation),
+		Short: operation.Description,
+		Args:  cliArgs(operation),
+		RunE: func(cmd *cobra.Command, args []string) error {
+			return runner(cmd, s, args)
+		},
 	}
-	dryRun, err := cmd.Flags().GetBool("dry-run")
-	if err != nil {
-		return fmt.Errorf("failed to read --dry-run flag: %w", err)
-	}
-	force, err := cmd.Flags().GetBool("force")
-	if err != nil {
-		return fmt.Errorf("failed to read --force flag: %w", err)
-	}
-	result, err := s.Sync(cmd.Context(), usecase.SyncOptions{Target: target, DryRun: dryRun, Force: force})
-	if err != nil {
-		return err
-	}
-	for _, targetResult := range result.Targets {
-		if dryRun {
-			fmt.Fprintf(cmd.OutOrStdout(), "%s: %d written, %d would_write, %d skipped, %d failed\n",
-				targetResult.Target,
-				targetResult.FilesWritten,
-				targetResult.FilesWouldWrite,
-				targetResult.FilesSkipped,
-				targetResult.FilesFailed,
-			)
-			for _, file := range targetResult.Files {
-				fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", file.Status, file.Path)
-			}
+	for _, input := range operation.Inputs {
+		if input.CLIKind != "flag" {
 			continue
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s: %d written, %d skipped, %d failed\n",
-			targetResult.Target,
-			targetResult.FilesWritten,
-			targetResult.FilesSkipped,
-			targetResult.FilesFailed,
-		)
-	}
-	if result.HasErrors() {
-		return fmt.Errorf("sync completed with errors")
-	}
-	return nil
-}
-
-func runAddSkill(cmd *cobra.Command, s service.Service, args []string) error {
-	sourcePath := ""
-	if len(args) > 1 {
-		sourcePath = args[1]
-	}
-	if err := s.AddSkill(cmd.Context(), args[0], sourcePath); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Registered skill %s\n", args[0])
-	return nil
-}
-
-func runRemoveSkill(cmd *cobra.Command, s service.Service, args []string) error {
-	if err := s.RemoveSkill(cmd.Context(), args[0]); err != nil {
-		return err
-	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Removed skill %s\n", args[0])
-	return nil
-}
-
-func runListSkills(cmd *cobra.Command, s service.Service, _ []string) error {
-	skills, err := s.ListSkills(cmd.Context())
-	if err != nil {
-		return err
-	}
-	for _, skill := range skills {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", skill.Name, skill.Path)
-	}
-	return nil
-}
-
-func runListTargets(cmd *cobra.Command, s service.Service, _ []string) error {
-	targets, err := s.ListTargets(cmd.Context())
-	if err != nil {
-		return err
-	}
-	for _, target := range targets {
-		status := "disabled"
-		if target.Enabled {
-			status = "enabled"
+		flagName := cliFlagName(input.ExternalName)
+		help := input.Help
+		switch input.Type {
+		case "bool":
+			cmd.Flags().Bool(flagName, false, help)
+		case "string":
+			if input.Name == "target" {
+				cmd.Flags().StringP(flagName, "t", "", help)
+			} else {
+				cmd.Flags().String(flagName, "", help)
+			}
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n", target.Name, status, target.OutputDir, strings.Join(target.EmitPaths, ","))
 	}
-	return nil
+	return cmd
 }
 
-func runEnableTarget(cmd *cobra.Command, s service.Service, args []string) error {
-	if err := s.EnableTarget(cmd.Context(), args[0]); err != nil {
-		return err
+func cliUse(operation opsgen.OperationDescriptor) string {
+	parts := []string{operation.CLIName}
+	for _, input := range operation.Inputs {
+		if input.CLIKind != "arg" {
+			continue
+		}
+		name := strings.ReplaceAll(input.ExternalName, "_", "-")
+		if input.Required && operation.MethodName != "Init" {
+			parts = append(parts, "<"+name+">")
+		} else {
+			parts = append(parts, "["+name+"]")
+		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Enabled target %s\n", args[0])
-	return nil
+	return strings.Join(parts, " ")
 }
 
-func runDisableTarget(cmd *cobra.Command, s service.Service, args []string) error {
-	if err := s.DisableTarget(cmd.Context(), args[0]); err != nil {
-		return err
+func cliArgs(operation opsgen.OperationDescriptor) cobra.PositionalArgs {
+	minArgs := 0
+	maxArgs := 0
+	for _, input := range operation.Inputs {
+		if input.CLIKind != "arg" {
+			continue
+		}
+		maxArgs++
+		if input.Required && operation.MethodName != "Init" {
+			minArgs++
+		}
 	}
-	fmt.Fprintf(cmd.OutOrStdout(), "Disabled target %s\n", args[0])
-	return nil
+	return cobra.RangeArgs(minArgs, maxArgs)
 }
 
-func runPull(cmd *cobra.Command, s service.Service, args []string) error {
-	remoteURL := ""
-	if len(args) > 0 {
-		remoteURL = args[0]
-	}
-	return s.Pull(cmd.Context(), remoteURL)
+func cliFlagName(externalName string) string {
+	return strings.ReplaceAll(externalName, "_", "-")
 }
 
-func runPush(cmd *cobra.Command, s service.Service, args []string) error {
-	remoteURL := ""
-	if len(args) > 0 {
-		remoteURL = args[0]
+func positionalInput(args []string, index int) string {
+	if index >= len(args) {
+		return ""
 	}
-	return s.Push(cmd.Context(), remoteURL)
+	return args[index]
+}
+
+func stringFlag(cmd *cobra.Command, externalName string) (string, error) {
+	flagName := cliFlagName(externalName)
+	value, err := cmd.Flags().GetString(flagName)
+	if err != nil {
+		return "", fmt.Errorf("failed to read --%s flag: %w", flagName, err)
+	}
+	return value, nil
+}
+
+func boolFlag(cmd *cobra.Command, externalName string) (bool, error) {
+	flagName := cliFlagName(externalName)
+	value, err := cmd.Flags().GetBool(flagName)
+	if err != nil {
+		return false, fmt.Errorf("failed to read --%s flag: %w", flagName, err)
+	}
+	return value, nil
 }

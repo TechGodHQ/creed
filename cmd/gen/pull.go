@@ -5,30 +5,23 @@ package gen
 import (
 	"github.com/spf13/cobra"
 
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
 // PullCommandSpec describes the generated CLI wrapper for service.Service.Pull.
 type PullCommandSpec struct {
-	MethodName string
+	Operation  opsgen.OperationDescriptor
 	ParamNames []string
 }
 
 // PullSpec is metadata extracted from service.Service.Pull.
 var PullSpec = PullCommandSpec{
-	MethodName: "Pull",
+	Operation:  mustOperation("Pull"),
 	ParamNames: []string{"ctx", "remoteURL"},
 }
 
 // NewPullCommand returns the generated Cobra command wrapper for service.Service.Pull.
 func NewPullCommand(s service.Service) *cobra.Command {
-	cmd := &cobra.Command{
-		Use:   "pull [remote-url]",
-		Short: "Pull syncs from a git remote source into the service root.",
-		Args:  cobra.MaximumNArgs(1),
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return runPull(cmd, s, args)
-		},
-	}
-	return cmd
+	return newGeneratedCommand(s, PullSpec.Operation, runPull)
 }
