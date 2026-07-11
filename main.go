@@ -1,4 +1,4 @@
-//go:generate go run ./internal/codegen --service internal/service/service.go --out-cli cmd/gen --out-mcp internal/mcp/gen --out-ops internal/ops/gen
+//go:generate go run ./internal/codegen --service internal/service/service.go --out-cli cmd/gen --out-mcp internal/mcp/gen --out-ops internal/ops/gen --out-http internal/httpapi/gen
 
 package main
 

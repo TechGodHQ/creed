@@ -12,12 +12,14 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 	outCLI := filepath.Join(t.TempDir(), "cmd", "gen")
 	outMCP := filepath.Join(t.TempDir(), "internal", "mcp", "gen")
 	outOps := filepath.Join(t.TempDir(), "internal", "ops", "gen")
+	outHTTP := filepath.Join(t.TempDir(), "internal", "httpapi", "gen")
 
 	err := run([]string{
 		"--service", filepath.Join(root, "internal", "service", "service.go"),
 		"--out-cli", outCLI,
 		"--out-mcp", outMCP,
 		"--out-ops", outOps,
+		"--out-http", outHTTP,
 	})
 	if err != nil {
 		t.Fatalf("run() error = %v", err)
@@ -38,6 +40,7 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 		assertFileExists(t, filepath.Join(outCLI, method+".go"))
 		assertFileExists(t, filepath.Join(outMCP, method+".go"))
 	}
+	assertFileExists(t, filepath.Join(outHTTP, "handlers.go"))
 	cliSync, err := os.ReadFile(filepath.Join(outCLI, "sync.go"))
 	if err != nil {
 		t.Fatalf("read generated CLI sync file: %v", err)
@@ -123,6 +126,26 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 	}
 	if strings.Contains(mcpHandlerContent, "switch spec.MethodName") {
 		t.Fatalf("generated MCP handlers should not rely on a handwritten method switch:\n%s", mcpHandlerContent)
+	}
+
+	httpHandlers, err := os.ReadFile(filepath.Join(outHTTP, "handlers.go"))
+	if err != nil {
+		t.Fatalf("read generated HTTP handlers file: %v", err)
+	}
+	httpHandlerContent := string(httpHandlers)
+	for _, want := range []string{
+		`func GeneratedOperations(s service.Service) []GeneratedOperation`,
+		`{Descriptor: mustOperation("Sync"), Handler: SyncHTTPHandler(s)}`,
+		`result, err := s.Sync(ctx, usecase.SyncOptions{Target: req.Target, DryRun: req.DryRun, Force: req.Force})`,
+		`func ListTargetsHTTPHandler(s service.Service) OperationHandler`,
+		`result, err := s.ListTargets(ctx)`,
+	} {
+		if !strings.Contains(httpHandlerContent, want) {
+			t.Fatalf("generated HTTP handlers missing %q:\n%s", want, httpHandlerContent)
+		}
+	}
+	if strings.Contains(httpHandlerContent, "switch") {
+		t.Fatalf("generated HTTP handlers should not rely on a handwritten method switch:\n%s", httpHandlerContent)
 	}
 
 	ops, err := os.ReadFile(filepath.Join(outOps, "operations.go"))
@@ -240,7 +263,7 @@ func TestOperationDescriptorContentCoversInputShapes(t *testing.T) {
 		`OperationName: "simple_param"`,
 		`Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg"`,
 		`OperationName: "struct_param"`,
-		`Name: "opts", ExternalName: "opts", Type: "Options", Kind: "struct", Required: false`,
+		`Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg"`,
 		`[]OutputDescriptor{{Name: "result1", Type: "Result"}, {Name: "result2", Type: "error"}}`,
 	} {
 		if !strings.Contains(content, want) {
@@ -249,6 +272,38 @@ func TestOperationDescriptorContentCoversInputShapes(t *testing.T) {
 	}
 	if strings.Contains(content, `ExternalName: "context"`) {
 		t.Fatalf("descriptor content should not expose context.Context as an operation input:\n%s", content)
+	}
+}
+
+func TestHTTPHandlersContentUsesOnlyOwnedFieldsForStructParams(t *testing.T) {
+	methods := []serviceMethod{
+		{
+			Name: "Foo",
+			Params: []methodParam{
+				{Name: "ctx", ExternalName: "context", Type: "context.Context", Kind: "context"},
+				{Name: "id", ExternalName: "id", Type: "string", Kind: "primitive", Required: true},
+				{Name: "opts", ExternalName: "opts", Type: "FooOptions", Kind: "struct", Fields: []methodParam{{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true}}},
+			},
+			Results: []methodResult{{Name: "result1", Type: "error"}},
+		},
+	}
+
+	content, err := httpHandlersContent(methods)
+	if err != nil {
+		t.Fatalf("httpHandlersContent() error = %v", err)
+	}
+	for _, want := range []string{
+		`type fooRequest struct`,
+		`Id   string ` + "`json:\"id\"`",
+		`Name string ` + "`json:\"name\"`",
+		`if err := s.Foo(ctx, req.Id, service.FooOptions{Name: req.Name}); err != nil`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("generated HTTP handler content missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, `FooOptions{Id: req.Id`) {
+		t.Fatalf("struct param included unrelated primitive field:\n%s", content)
 	}
 }
 

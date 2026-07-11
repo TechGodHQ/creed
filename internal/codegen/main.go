@@ -30,6 +30,7 @@ Flags:
   --out-cli PATH    Output directory for generated CLI commands (default: cmd/gen)
   --out-mcp PATH    Output directory for generated MCP tools (default: internal/mcp/gen)
   --out-ops PATH    Output directory for generated operation descriptors (default: internal/ops/gen)
+  --out-http PATH   Output directory for generated HTTP operation handlers (default: internal/httpapi/gen)
   --dry-run         Show what would be generated without writing files
   -h, --help        Show this help message
 
@@ -53,6 +54,7 @@ type methodParam struct {
 	Required     bool
 	CLIKind      string
 	Help         string
+	Fields       []methodParam
 }
 
 type methodResult struct {
@@ -68,6 +70,7 @@ type structInfo struct {
 type structField struct {
 	Name     string
 	JSONTag  string
+	Type     string
 	Embedded bool
 }
 
@@ -84,6 +87,7 @@ func run(args []string) error {
 		outCLI      string
 		outMCP      string
 		outOps      string
+		outHTTP     string
 		dryRun      bool
 		showHelp    bool
 	)
@@ -93,6 +97,7 @@ func run(args []string) error {
 	fs.StringVar(&outCLI, "out-cli", "cmd/gen", "Output directory for generated CLI commands")
 	fs.StringVar(&outMCP, "out-mcp", "internal/mcp/gen", "Output directory for generated MCP tools")
 	fs.StringVar(&outOps, "out-ops", "internal/ops/gen", "Output directory for generated operation descriptors")
+	fs.StringVar(&outHTTP, "out-http", "internal/httpapi/gen", "Output directory for generated HTTP operation handlers")
 	fs.BoolVar(&dryRun, "dry-run", false, "Show what would be generated without writing files")
 	fs.BoolVar(&showHelp, "help", false, "Show help message")
 	fs.Usage = func() {
@@ -137,6 +142,9 @@ func run(args []string) error {
 	if err := writeOperationDescriptorFile(outOps, methods, dryRun); err != nil {
 		return err
 	}
+	if err := writeHTTPHandlersFile(outHTTP, methods, dryRun); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -171,6 +179,7 @@ func serviceMethods(path string) ([]serviceMethod, error) {
 	if err := validateServiceMethods(methods, structs); err != nil {
 		return nil, err
 	}
+	expandStructParams(methods, structs)
 	return methods, nil
 }
 
@@ -234,12 +243,12 @@ func collectStructs(file *ast.File, qualifier string) map[string]structInfo {
 					}
 					if len(field.Names) == 0 {
 						if name := embeddedFieldName(field.Type); name != "" {
-							info.Fields = append(info.Fields, structField{Name: name, JSONTag: jsonTag, Embedded: true})
+							info.Fields = append(info.Fields, structField{Name: name, JSONTag: jsonTag, Type: exprString(field.Type), Embedded: true})
 						}
 						continue
 					}
 					for _, name := range field.Names {
-						info.Fields = append(info.Fields, structField{Name: name.Name, JSONTag: jsonTag})
+						info.Fields = append(info.Fields, structField{Name: name.Name, JSONTag: jsonTag, Type: exprString(field.Type)})
 					}
 				}
 			}
@@ -373,8 +382,59 @@ func isSupportedStructParam(typeName string, structs map[string]structInfo) bool
 		if field.JSONTag == "" || field.JSONTag == "-" {
 			return false
 		}
+		if kind := inputKind(field.Type); kind != "primitive" {
+			return false
+		}
 	}
 	return true
+}
+
+func expandStructParams(methods []serviceMethod, structs map[string]structInfo) {
+	for methodIndex := range methods {
+		for paramIndex := range methods[methodIndex].Params {
+			param := &methods[methodIndex].Params[paramIndex]
+			if param.Kind != "struct" {
+				continue
+			}
+			info, ok := structs[param.Type]
+			if !ok {
+				continue
+			}
+			for _, field := range info.Fields {
+				if !ast.IsExported(field.Name) {
+					continue
+				}
+				jsonName, required := jsonInputName(field.JSONTag)
+				param.Fields = append(param.Fields, methodParam{
+					Name:         lowerFirst(field.Name),
+					ExternalName: jsonName,
+					Type:         field.Type,
+					Kind:         inputKind(field.Type),
+					Required:     required,
+					CLIKind:      cliKindForField(field.Type, required),
+				})
+			}
+		}
+	}
+}
+
+func jsonInputName(tag string) (string, bool) {
+	parts := strings.Split(tag, ",")
+	name := parts[0]
+	required := true
+	for _, part := range parts[1:] {
+		if part == "omitempty" {
+			required = false
+		}
+	}
+	return name, required
+}
+
+func cliKindForField(typeName string, required bool) string {
+	if typeName == "bool" || !required {
+		return "flag"
+	}
+	return "arg"
 }
 
 func collectInterfaceMethods(iface *ast.InterfaceType, interfaces map[string]*ast.InterfaceType, seen map[string]bool) []serviceMethod {
@@ -603,6 +663,25 @@ func writeOperationDescriptorFile(dir string, methods []serviceMethod, dryRun bo
 	return nil
 }
 
+func writeHTTPHandlersFile(dir string, methods []serviceMethod, dryRun bool) error {
+	path := filepath.Join(dir, "handlers.go")
+	if dryRun {
+		fmt.Printf("would write %s\n", path)
+		return nil
+	}
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		return fmt.Errorf("create output dir %s: %w", dir, err)
+	}
+	content, err := httpHandlersContent(methods)
+	if err != nil {
+		return err
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		return fmt.Errorf("write %s: %w", path, err)
+	}
+	return nil
+}
+
 func operationDescriptorContent(methods []serviceMethod) (string, error) {
 	var ops strings.Builder
 	for _, method := range methods {
@@ -817,16 +896,14 @@ func cliCallArgs(method serviceMethod, inputs []methodParam) (string, error) {
 			}
 			args = append(args, input.Name)
 		case "struct":
-			for _, input := range inputs {
-				if input.Kind == "struct" {
-					return "", fmt.Errorf("cannot generate CLI handler for %s.%s: struct inputs must be expanded into operation descriptor fields", method.Name, param.Name)
-				}
+			if len(param.Fields) == 0 {
+				return "", fmt.Errorf("cannot generate CLI handler for %s.%s: struct inputs must be expanded into operation descriptor fields", method.Name, param.Name)
 			}
 			parts := []string{}
-			for _, input := range inputs {
+			for _, input := range param.Fields {
 				parts = append(parts, fmt.Sprintf("%s: %s", exportedName(input.Name), input.Name))
 			}
-			args = append(args, fmt.Sprintf("%s{%s}", param.Type, strings.Join(parts, ", ")))
+			args = append(args, fmt.Sprintf("%s{%s}", generatedTypeName(param.Type), strings.Join(parts, ", ")))
 		default:
 			return "", fmt.Errorf("cannot generate CLI call for %s.%s kind %s", method.Name, param.Name, param.Kind)
 		}
@@ -994,16 +1071,14 @@ func mcpCallArgs(method serviceMethod, inputs []methodParam) (string, error) {
 			}
 			args = append(args, "req."+exportedName(input.Name))
 		case "struct":
-			for _, input := range inputs {
-				if input.Kind == "struct" {
-					return "", fmt.Errorf("cannot generate MCP handler for %s.%s: struct inputs must be expanded into operation descriptor fields", method.Name, param.Name)
-				}
+			if len(param.Fields) == 0 {
+				return "", fmt.Errorf("cannot generate MCP handler for %s.%s: struct inputs must be expanded into operation descriptor fields", method.Name, param.Name)
 			}
 			parts := []string{}
-			for _, input := range inputs {
+			for _, input := range param.Fields {
 				parts = append(parts, fmt.Sprintf("%s: req.%s", exportedName(input.Name), exportedName(input.Name)))
 			}
-			args = append(args, fmt.Sprintf("%s{%s}", param.Type, strings.Join(parts, ", ")))
+			args = append(args, fmt.Sprintf("%s{%s}", generatedTypeName(param.Type), strings.Join(parts, ", ")))
 		default:
 			return "", fmt.Errorf("cannot generate MCP call for %s.%s kind %s", method.Name, param.Name, param.Kind)
 		}
@@ -1034,6 +1109,13 @@ func exportedName(name string) string {
 		return ""
 	}
 	return strings.ToUpper(name[:1]) + name[1:]
+}
+
+func generatedTypeName(typeName string) string {
+	if strings.Contains(typeName, ".") || inputKind(typeName) != "struct" {
+		return typeName
+	}
+	return "service." + typeName
 }
 
 func lowerFirst(name string) string {
@@ -1180,6 +1262,10 @@ func operationInputs(method serviceMethod) []methodParam {
 func defaultCLIInputs(params []methodParam) []methodParam {
 	inputs := make([]methodParam, 0, len(params))
 	for _, param := range params {
+		if param.Kind == "struct" && len(param.Fields) > 0 {
+			inputs = append(inputs, param.Fields...)
+			continue
+		}
 		input := param
 		switch input.Type {
 		case "bool":
