@@ -164,7 +164,12 @@ func (e *SyncEngine) syncTarget(
 
 	// Prepare the files to emit for this target.
 	target = targetWithOutputDir(target, config.OutputDir)
-	files := prepareFiles(target, skills, configs)
+	files, err := prepareFiles(target, skills, configs)
+	if err != nil {
+		tr.Error = fmt.Errorf("prepare target %q: %w", name, err)
+		tr.Duration = time.Since(start)
+		return tr
+	}
 
 	// Dry-run: report what would change without writing. Emitters that can
 	// inspect their destination should report skipped for files that are already
@@ -303,39 +308,83 @@ func prefixOutputPath(outputDir, path string) string {
 // Context outputs receive aggregated config content. Skill directory outputs
 // receive one markdown file per skill. Config outputs receive target-specific
 // generated configuration content.
-func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain.ConfigFile) []ports.EmittedFile {
+func prepareFiles(target *domain.Target, skills []domain.Skill, configs []domain.ConfigFile) ([]ports.EmittedFile, error) {
 	var files []ports.EmittedFile
 	outputs := targetOutputs(target)
+	renderers := targetOutputRenderers(target, outputs)
 
 	for _, output := range outputs {
-		switch output.Kind {
-		case domain.OutputKindContext:
-			content := aggregateConfigs(configs)
-			if len(content) > 0 {
-				files = append(files, ports.EmittedFile{
-					Path:    output.Path,
-					Content: content,
-				})
-			}
-		case domain.OutputKindSkillDir:
-			for _, skill := range skills {
-				files = append(files, ports.EmittedFile{
-					Path:    output.Path + skill.Name + ".md",
-					Content: skill.Content,
-				})
-			}
-		case domain.OutputKindConfig:
-			content := renderTargetConfig(target, output, outputs, configs, skills)
-			if len(content) > 0 {
-				files = append(files, ports.EmittedFile{
-					Path:    output.Path,
-					Content: content,
-				})
-			}
+		renderer, ok := renderers[output.Kind]
+		if !ok {
+			return nil, fmt.Errorf("unknown output kind %q for path %q", output.Kind, output.Path)
 		}
+		rendered, err := renderer(output, renderInputs{skills: skills, configs: configs})
+		if err != nil {
+			return nil, fmt.Errorf("render output %q (%s): %w", output.Path, output.Kind, err)
+		}
+		files = append(files, rendered...)
 	}
 
-	return files
+	return files, nil
+}
+
+type renderInputs struct {
+	skills  []domain.Skill
+	configs []domain.ConfigFile
+}
+
+type targetOutputRenderer func(domain.TargetOutput, renderInputs) ([]ports.EmittedFile, error)
+
+func targetOutputRenderers(target *domain.Target, outputs []domain.TargetOutput) map[domain.OutputKind]targetOutputRenderer {
+	renderers := map[domain.OutputKind]targetOutputRenderer{
+		domain.OutputKindContext:  renderContextOutput,
+		domain.OutputKindSkillDir: renderSkillDirOutput,
+		domain.OutputKindConfig:   renderGenericConfigOutput,
+	}
+	if target.Name == "aider" {
+		renderers[domain.OutputKindConfig] = renderAiderConfigOutput(outputs)
+	}
+	return renderers
+}
+
+func renderContextOutput(output domain.TargetOutput, inputs renderInputs) ([]ports.EmittedFile, error) {
+	content := aggregateConfigs(inputs.configs)
+	if len(content) == 0 {
+		return nil, nil
+	}
+	return []ports.EmittedFile{{Path: output.Path, Content: content}}, nil
+}
+
+func renderSkillDirOutput(output domain.TargetOutput, inputs renderInputs) ([]ports.EmittedFile, error) {
+	files := make([]ports.EmittedFile, 0, len(inputs.skills))
+	for _, skill := range inputs.skills {
+		files = append(files, ports.EmittedFile{
+			Path:    output.Path + skill.Name + ".md",
+			Content: skill.Content,
+		})
+	}
+	return files, nil
+}
+
+func renderGenericConfigOutput(domain.TargetOutput, renderInputs) ([]ports.EmittedFile, error) {
+	return nil, nil
+}
+
+func renderAiderConfigOutput(outputs []domain.TargetOutput) targetOutputRenderer {
+	return func(output domain.TargetOutput, inputs renderInputs) ([]ports.EmittedFile, error) {
+		if len(aggregateConfigs(inputs.configs)) == 0 {
+			return nil, nil
+		}
+		for _, candidate := range outputs {
+			if candidate.Kind == domain.OutputKindContext {
+				return []ports.EmittedFile{{
+					Path:    output.Path,
+					Content: []byte("read:\n  - " + candidate.Path + "\n"),
+				}}, nil
+			}
+		}
+		return nil, nil
+	}
 }
 
 func targetOutputs(target *domain.Target) []domain.TargetOutput {
@@ -357,18 +406,6 @@ func targetOutputs(target *domain.Target) []domain.TargetOutput {
 		outputs = append(outputs, domain.TargetOutput{Path: emitPath, Kind: kind})
 	}
 	return outputs
-}
-
-func renderTargetConfig(target *domain.Target, output domain.TargetOutput, outputs []domain.TargetOutput, configs []domain.ConfigFile, _ []domain.Skill) []byte {
-	if target.Name != "aider" || output.Kind != domain.OutputKindConfig || len(aggregateConfigs(configs)) == 0 {
-		return nil
-	}
-	for _, candidate := range outputs {
-		if candidate.Kind == domain.OutputKindContext {
-			return []byte("read:\n  - " + candidate.Path + "\n")
-		}
-	}
-	return nil
 }
 
 // isDirPath returns true if the path represents a directory (ends with "/").

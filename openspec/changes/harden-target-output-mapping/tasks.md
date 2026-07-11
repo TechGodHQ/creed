@@ -12,7 +12,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
 
 ### 1) Renderer contract and sync internals
 
-- [ ] **T1: Extract explicit target output renderer contract** *(~1h 30m)* — Linear: COD-326
+- [x] **T1: Extract explicit target output renderer contract** *(~1h 30m)* — Linear: COD-326
   - **Files:** `internal/usecase/sync.go`, focused tests as needed
   - **Do:** replace ad-hoc output-kind branching with renderer helpers/registry for context, skill directory, config, and target-specific config outputs.
   - **Verify:** existing sync/usecase tests still pass; unknown output kind returns a structured target-level error instead of silently skipping.

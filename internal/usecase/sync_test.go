@@ -417,7 +417,10 @@ func TestPrepareFiles_DirectoryGetsSkills(t *testing.T) {
 		{Name: "alpha", Content: []byte("alpha content")},
 		{Name: "beta", Content: []byte("beta content")},
 	}
-	files := prepareFiles(target, skills, nil)
+	files, err := prepareFiles(target, skills, nil)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
 
 	if len(files) != 2 {
 		t.Fatalf("expected 2 files, got %d", len(files))
@@ -436,7 +439,10 @@ func TestPrepareFiles_FilePathGetsAggregatedConfigs(t *testing.T) {
 		{Name: "ctx1", Content: []byte("context one")},
 		{Name: "ctx2", Content: []byte("context two")},
 	}
-	files := prepareFiles(target, nil, configs)
+	files, err := prepareFiles(target, nil, configs)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
 
 	if len(files) != 1 {
 		t.Fatalf("expected 1 file, got %d", len(files))
@@ -453,6 +459,65 @@ func TestPrepareFiles_FilePathGetsAggregatedConfigs(t *testing.T) {
 func TestAggregateConfigs_EmptyReturnsNil(t *testing.T) {
 	if result := aggregateConfigs(nil); result != nil {
 		t.Errorf("expected nil for empty configs, got %q", string(result))
+	}
+}
+
+func TestPrepareFiles_UnknownOutputKindReturnsError(t *testing.T) {
+	target := &domain.Target{
+		Name:        "fixture",
+		DisplayName: "Fixture",
+		Outputs: func(string) []domain.TargetOutput {
+			return []domain.TargetOutput{{Path: "fixture.out", Kind: domain.OutputKind("mystery")}}
+		},
+		EmitPaths: func(string) []string { return []string{"fixture.out"} },
+	}
+
+	_, err := prepareFiles(target, nil, nil)
+	if err == nil {
+		t.Fatal("expected unknown output kind to return an error")
+	}
+	if !strings.Contains(err.Error(), "unknown output kind") {
+		t.Fatalf("expected unknown output kind error, got %v", err)
+	}
+}
+
+func TestSync_UnknownOutputKindProducesTargetLevelError(t *testing.T) {
+	const targetName = "fixture-unknown-output"
+	domain.DefaultTargets[targetName] = &domain.Target{
+		Name:        targetName,
+		DisplayName: "Fixture Unknown Output",
+		Outputs: func(string) []domain.TargetOutput {
+			return []domain.TargetOutput{{Path: "fixture.out", Kind: domain.OutputKind("mystery")}}
+		},
+		EmitPaths: func(string) []string { return []string{"fixture.out"} },
+	}
+	defer delete(domain.DefaultTargets, targetName)
+
+	src := newTestSource()
+	src.manifest.Targets = []domain.TargetConfig{
+		{Name: targetName, Enabled: true},
+		{Name: "claude", Enabled: true},
+	}
+	emitter := &mockEmitter{}
+	engine := NewSyncEngine(src, emitter)
+
+	result, err := engine.Sync(context.Background(), SyncOptions{})
+	if err != nil {
+		t.Fatalf("sync should not return top-level error: %v", err)
+	}
+	fixture := findTargetResult(t, result, targetName)
+	if fixture.Error == nil {
+		t.Fatal("unknown output kind should produce a target-level error")
+	}
+	if !strings.Contains(fixture.Error.Error(), "unknown output kind") {
+		t.Fatalf("expected unknown output kind error, got %v", fixture.Error)
+	}
+	claude := findTargetResult(t, result, "claude")
+	if claude.Error != nil {
+		t.Fatalf("other targets should continue after render failure: %v", claude.Error)
+	}
+	if claude.FilesWritten == 0 {
+		t.Fatal("other targets should still emit files after render failure")
 	}
 }
 
@@ -482,7 +547,10 @@ func TestPrepareFiles_AiderEmitsConfigAndContext(t *testing.T) {
 		{Name: "project", Content: []byte("project context")},
 		{Name: "development", Content: []byte("development rules")},
 	}
-	files := prepareFiles(target, nil, configs)
+	files, err := prepareFiles(target, nil, configs)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
 	byPath := emittedFilesByPath(files)
 
 	if len(files) != 2 {
@@ -520,7 +588,10 @@ func TestPrepareFiles_DescriptorAwareCandidateFiles(t *testing.T) {
 			if err != nil {
 				t.Fatalf("lookup target: %v", err)
 			}
-			files := prepareFiles(target, skills, configs)
+			files, err := prepareFiles(target, skills, configs)
+			if err != nil {
+				t.Fatalf("prepare files: %v", err)
+			}
 			paths := emittedFilePaths(files)
 			assertStringSlicesEqual(t, paths, tt.paths)
 		})
@@ -537,9 +608,17 @@ func TestPrepareFiles_DeterministicOrdering(t *testing.T) {
 		{Name: "project", Content: []byte("project context")},
 	}
 
-	first := emittedFilePaths(prepareFiles(target, skills, configs))
+	firstFiles, err := prepareFiles(target, skills, configs)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
+	first := emittedFilePaths(firstFiles)
 	for range 5 {
-		next := emittedFilePaths(prepareFiles(target, skills, configs))
+		nextFiles, err := prepareFiles(target, skills, configs)
+		if err != nil {
+			t.Fatalf("prepare files: %v", err)
+		}
+		next := emittedFilePaths(nextFiles)
 		assertStringSlicesEqual(t, next, first)
 	}
 }
@@ -589,7 +668,10 @@ func TestPrepareFiles_AiderWithoutConfigsDoesNotEmitDanglingConfig(t *testing.T)
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			files := prepareFiles(target, nil, tt.configs)
+			files, err := prepareFiles(target, nil, tt.configs)
+			if err != nil {
+				t.Fatalf("prepare files: %v", err)
+			}
 
 			if len(files) != 0 {
 				t.Fatalf("expected no files without config content, got %#v", files)
