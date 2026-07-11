@@ -41,7 +41,7 @@ var Operations = []OperationDescriptor{
 		CLIName:       "init",
 		MCPName:       "init",
 		HTTPRoute:     "/v1/operations/init",
-		Inputs:        []InputDescriptor{{Name: "projectName", ExternalName: "project_name", Type: "string", Kind: "primitive", Required: false, CLIKind: "arg", Help: "Project name for the generated scaffold."}},
+		Inputs:        []InputDescriptor{{Name: "projectName", ExternalName: "project_name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Project name for the generated scaffold."}},
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "error"}},
 	},
 	{

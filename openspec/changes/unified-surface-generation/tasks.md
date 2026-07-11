@@ -25,7 +25,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
 
 ### 2) MCP generation hardening
 
-- [ ] **T3: Generate MCP schemas and handlers from operation descriptors** *(~2h 30m)* — Linear: COD-335
+- [x] **T3: Generate MCP schemas and handlers from operation descriptors** *(~2h 30m)* — Linear: COD-335
   - **Files:** `internal/codegen/`, `internal/mcp/gen/`, `internal/mcp/server.go`, MCP tests
   - **Do:** move per-operation request decoding/schema/handler wiring out of handwritten `server.go` switches into generated MCP code or descriptor-driven runtime.
   - **Verify:** adding a fixture operation exposes a callable MCP tool without adding a handwritten switch case.

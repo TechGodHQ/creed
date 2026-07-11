@@ -69,6 +69,28 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 		t.Fatalf("generated MCP sync file does not expose parameter metadata:\n%s", string(mcpSync))
 	}
 
+	mcpHandlers, err := os.ReadFile(filepath.Join(outMCP, "handlers.go"))
+	if err != nil {
+		t.Fatalf("read generated MCP handlers file: %v", err)
+	}
+	mcpHandlerContent := string(mcpHandlers)
+	for _, want := range []string{
+		`func GeneratedTools(s service.Service) []GeneratedTool`,
+		`{Spec: SyncToolSpec(), Tool: SyncMCPTool(), Handler: SyncMCPHandler(s)}`,
+		`options = append(options, mcplib.WithBoolean("dry_run"))`,
+		`result, err := s.Sync(ctx, usecase.SyncOptions{Target: req.Target, DryRun: req.DryRun, Force: req.Force})`,
+		`func AddSkillMCPHandler(s service.Service) ToolHandler`,
+		`if strings.TrimSpace(req.Name) == ""`,
+		`if err := s.AddSkill(ctx, req.Name, req.SourcePath); err != nil`,
+	} {
+		if !strings.Contains(mcpHandlerContent, want) {
+			t.Fatalf("generated MCP handlers missing %q:\n%s", want, mcpHandlerContent)
+		}
+	}
+	if strings.Contains(mcpHandlerContent, "switch spec.MethodName") {
+		t.Fatalf("generated MCP handlers should not rely on a handwritten method switch:\n%s", mcpHandlerContent)
+	}
+
 	ops, err := os.ReadFile(filepath.Join(outOps, "operations.go"))
 	if err != nil {
 		t.Fatalf("read generated operation descriptors: %v", err)
@@ -193,6 +215,64 @@ func TestOperationDescriptorContentCoversInputShapes(t *testing.T) {
 	}
 	if strings.Contains(content, `ExternalName: "context"`) {
 		t.Fatalf("descriptor content should not expose context.Context as an operation input:\n%s", content)
+	}
+}
+
+func TestMCPHandlersContentGeneratesCallableNewPrimitiveOperation(t *testing.T) {
+	methods := []serviceMethod{
+		{
+			Name: "Ping",
+			Doc:  "Ping checks generated tool delegation.",
+			Params: []methodParam{
+				{Name: "ctx", ExternalName: "context", Type: "context.Context", Kind: "context"},
+				{Name: "message", ExternalName: "message", Type: "string", Kind: "primitive"},
+				{Name: "count", ExternalName: "count", Type: "int", Kind: "primitive"},
+			},
+			Results: []methodResult{{Name: "result1", Type: "error"}},
+		},
+	}
+
+	content, err := mcpHandlersContent(methods)
+	if err != nil {
+		t.Fatalf("mcpHandlersContent() error = %v", err)
+	}
+	for _, want := range []string{
+		`{Spec: PingToolSpec(), Tool: PingMCPTool(), Handler: PingMCPHandler(s)}`,
+		`type pingRequest struct`,
+		`Message string ` + "`json:\"message,omitempty\"`",
+		`Count   int    ` + "`json:\"count,omitempty\"`",
+		`options = append(options, mcplib.WithString("message"))`,
+		`options = append(options, mcplib.WithInteger("count"))`,
+		`if err := s.Ping(ctx, req.Message, req.Count); err != nil`,
+	} {
+		if !strings.Contains(content, want) {
+			t.Fatalf("generated MCP handler content missing %q:\n%s", want, content)
+		}
+	}
+	if strings.Contains(content, "switch") {
+		t.Fatalf("generated handler for a new operation should not require switch wiring:\n%s", content)
+	}
+}
+
+func TestMCPHandlersContentRejectsUnexpandedStructOperation(t *testing.T) {
+	methods := []serviceMethod{
+		{
+			Name: "StructParam",
+			Params: []methodParam{
+				{Name: "ctx", ExternalName: "context", Type: "context.Context", Kind: "context"},
+				{Name: "opts", ExternalName: "opts", Type: "Options", Kind: "struct"},
+				{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive"},
+			},
+			Results: []methodResult{{Name: "result1", Type: "error"}},
+		},
+	}
+
+	_, err := mcpHandlersContent(methods)
+	if err == nil {
+		t.Fatal("mcpHandlersContent() error = nil, want unexpanded struct input error")
+	}
+	if !strings.Contains(err.Error(), "struct inputs must be expanded into operation descriptor fields") {
+		t.Fatalf("error = %v", err)
 	}
 }
 

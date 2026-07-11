@@ -6,14 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	serverlib "github.com/mark3labs/mcp-go/server"
 
 	"github.com/techgodhq/creed/internal/mcp/gen"
 	"github.com/techgodhq/creed/internal/service"
-	"github.com/techgodhq/creed/internal/usecase"
 )
 
 // Tool describes a generated MCP tool registered by the Creed server.
@@ -31,12 +29,10 @@ type CallResult struct {
 	Error  string          `json:"error,omitempty"`
 }
 
-type toolHandler func(context.Context, json.RawMessage) (any, error)
-
 type registeredTool struct {
 	Tool
 	mcpTool mcplib.Tool
-	handler toolHandler
+	handler gen.ToolHandler
 }
 
 // Server exposes generated Service-backed MCP tools.
@@ -127,62 +123,23 @@ func (s *Server) Call(ctx context.Context, name string, payload json.RawMessage)
 }
 
 func (s *Server) registerGeneratedTools() {
-	for _, spec := range gen.ToolSpecs {
-		tool, handler := s.toolForSpec(spec)
-		s.register(tool, handler)
+	for _, tool := range gen.GeneratedTools(s.service) {
+		s.register(tool)
 	}
 }
 
-func (s *Server) toolForSpec(spec gen.ToolSpec) (registeredTool, toolHandler) {
-	switch spec.MethodName {
-	case "Init":
-		return generatedTool(spec, []string{"project_name"}, mcplib.WithString("project_name", mcplib.Required())), s.callInit
-	case "Sync":
-		return generatedTool(spec, []string{"target", "dry_run", "force"}, mcplib.WithString("target"), mcplib.WithBoolean("dry_run"), mcplib.WithBoolean("force")), s.callSync
-	case "AddSkill":
-		return generatedTool(spec, []string{"name", "source_path"}, mcplib.WithString("name", mcplib.Required()), mcplib.WithString("source_path")), s.callAddSkill
-	case "RemoveSkill":
-		return generatedTool(spec, []string{"name"}, mcplib.WithString("name", mcplib.Required())), s.callRemoveSkill
-	case "ListSkills":
-		return generatedTool(spec, nil), s.callListSkills
-	case "ListTargets":
-		return generatedTool(spec, nil), s.callListTargets
-	case "EnableTarget":
-		return generatedTool(spec, []string{"name"}, mcplib.WithString("name", mcplib.Required())), s.callEnableTarget
-	case "DisableTarget":
-		return generatedTool(spec, []string{"name"}, mcplib.WithString("name", mcplib.Required())), s.callDisableTarget
-	case "Pull":
-		return generatedTool(spec, []string{"remote_url"}, mcplib.WithString("remote_url")), s.callPull
-	case "Push":
-		return generatedTool(spec, []string{"remote_url"}, mcplib.WithString("remote_url")), s.callPush
-	default:
-		return generatedTool(spec, externalParams(spec.ParamNames)), unsupportedGeneratedTool(spec)
-	}
-}
-
-func (s *Server) register(tool registeredTool, handler toolHandler) {
-	tool.handler = handler
-	s.tools[tool.Name] = tool
-	s.mcpServer.AddTool(tool.mcpTool, s.mcpHandler(tool.Name))
-}
-
-func generatedTool(spec gen.ToolSpec, params []string, opts ...mcplib.ToolOption) registeredTool {
-	allOpts := []mcplib.ToolOption{mcplib.WithDescription(spec.Description)}
-	allOpts = append(allOpts, opts...)
-	return registeredTool{
+func (s *Server) register(tool gen.GeneratedTool) {
+	registered := registeredTool{
 		Tool: Tool{
-			Name:        spec.Name,
-			Description: spec.Description,
-			Params:      params,
+			Name:        tool.Spec.Name,
+			Description: tool.Spec.Description,
+			Params:      externalParams(tool.Spec.ParamNames),
 		},
-		mcpTool: mcplib.NewTool(spec.Name, allOpts...),
+		mcpTool: tool.Tool,
+		handler: tool.Handler,
 	}
-}
-
-func unsupportedGeneratedTool(spec gen.ToolSpec) toolHandler {
-	return func(ctx context.Context, payload json.RawMessage) (any, error) {
-		return nil, fmt.Errorf("generated MCP tool %s for service.Service.%s has no handler", spec.Name, spec.MethodName)
-	}
+	s.tools[registered.Name] = registered
+	s.mcpServer.AddTool(registered.mcpTool, s.mcpHandler(registered.Name))
 }
 
 func (s *Server) mcpHandler(name string) serverlib.ToolHandlerFunc {
@@ -203,160 +160,6 @@ func (s *Server) mcpHandler(name string) serverlib.ToolHandlerFunc {
 	}
 }
 
-type initRequest struct {
-	ProjectName string `json:"project_name"`
-}
-
-type syncRequest struct {
-	Target string `json:"target,omitempty"`
-	DryRun bool   `json:"dry_run,omitempty"`
-	Force  bool   `json:"force,omitempty"`
-}
-
-type skillRequest struct {
-	Name       string `json:"name"`
-	SourcePath string `json:"source_path,omitempty"`
-}
-
-type targetRequest struct {
-	Name string `json:"name"`
-}
-
-type remoteRequest struct {
-	RemoteURL string `json:"remote_url,omitempty"`
-}
-
-type okResponse struct {
-	OK bool `json:"ok"`
-}
-
-func (s *Server) callInit(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req initRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(req.ProjectName) == "" {
-		return nil, fmt.Errorf("project_name is required")
-	}
-	if err := s.service.Init(ctx, req.ProjectName); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func (s *Server) callSync(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req syncRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	return s.service.Sync(ctx, usecase.SyncOptions{
-		Target: req.Target,
-		DryRun: req.DryRun,
-		Force:  req.Force,
-	})
-}
-
-func (s *Server) callAddSkill(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req skillRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := s.service.AddSkill(ctx, req.Name, req.SourcePath); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func (s *Server) callRemoveSkill(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req skillRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := s.service.RemoveSkill(ctx, req.Name); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func (s *Server) callListSkills(ctx context.Context, payload json.RawMessage) (any, error) {
-	if err := decodePayload(payload, &struct{}{}); err != nil {
-		return nil, err
-	}
-	return s.service.ListSkills(ctx)
-}
-
-func (s *Server) callListTargets(ctx context.Context, payload json.RawMessage) (any, error) {
-	if err := decodePayload(payload, &struct{}{}); err != nil {
-		return nil, err
-	}
-	return s.service.ListTargets(ctx)
-}
-
-func (s *Server) callEnableTarget(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req targetRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := s.service.EnableTarget(ctx, req.Name); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func (s *Server) callDisableTarget(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req targetRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if strings.TrimSpace(req.Name) == "" {
-		return nil, fmt.Errorf("name is required")
-	}
-	if err := s.service.DisableTarget(ctx, req.Name); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func (s *Server) callPull(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req remoteRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if err := s.service.Pull(ctx, req.RemoteURL); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func (s *Server) callPush(ctx context.Context, payload json.RawMessage) (any, error) {
-	var req remoteRequest
-	if err := decodePayload(payload, &req); err != nil {
-		return nil, err
-	}
-	if err := s.service.Push(ctx, req.RemoteURL); err != nil {
-		return nil, err
-	}
-	return okResponse{OK: true}, nil
-}
-
-func decodePayload(payload json.RawMessage, dst any) error {
-	decoder := json.NewDecoder(strings.NewReader(string(payload)))
-	decoder.DisallowUnknownFields()
-	if err := decoder.Decode(dst); err != nil {
-		return fmt.Errorf("decode MCP tool payload: %w", err)
-	}
-	return nil
-}
-
 func externalParams(params []string) []string {
 	external := make([]string, 0, len(params))
 	for _, param := range params {
@@ -369,12 +172,15 @@ func externalParams(params []string) []string {
 }
 
 func toJSONName(name string) string {
-	var out strings.Builder
+	out := make([]rune, 0, len(name))
 	for i, r := range name {
 		if i > 0 && r >= 'A' && r <= 'Z' {
-			out.WriteByte('_')
+			out = append(out, '_')
 		}
-		out.WriteRune(r)
+		if r >= 'A' && r <= 'Z' {
+			r += 'a' - 'A'
+		}
+		out = append(out, r)
 	}
-	return strings.ToLower(out.String())
+	return string(out)
 }
