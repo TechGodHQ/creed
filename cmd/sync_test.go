@@ -57,8 +57,17 @@ func TestGeneratedListTargetsCommandDelegatesToService(t *testing.T) {
 	out := executeRootCommandInDir(t, projectDir, "list-targets")
 
 	output := out.String()
-	if !strings.Contains(output, "claude\tenabled\t.") {
+	if !strings.Contains(output, "claude	enabled	.") {
 		t.Fatalf("list-targets should include service-derived claude target state; output:\n%s", output)
+	}
+	for _, want := range []string{
+		"claude	enabled	.	CLAUDE.md,.claude/skills/	CLAUDE.md|context|markdown,.claude/skills/|skill_dir|markdown",
+		"cursor	disabled		.cursor/rules/	.cursor/rules/|skill_dir|markdown",
+		"aider	disabled		.aider.conf.yml,CONVENTIONS.md	.aider.conf.yml|config|yaml,CONVENTIONS.md|context|markdown",
+	} {
+		if !strings.Contains(output, want) {
+			t.Fatalf("list-targets should expose stable output descriptors %q; output:\n%s", want, output)
+		}
 	}
 }
 

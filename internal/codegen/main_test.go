@@ -528,11 +528,22 @@ func (r *SyncResult) HasErrors() bool { return false }
 `)
 	writeFixtureFile(t, filepath.Join(fixtureRoot, "internal", "domain", "domain.go"), `package domain
 
+type OutputKind string
+
+const OutputKindContext OutputKind = "context"
+
+type TargetOutput struct {
+	Path   string
+	Kind   OutputKind
+	Format string
+}
+
 type TargetInfo struct {
 	Name      string
 	Enabled   bool
 	OutputDir string
 	EmitPaths []string
+	Outputs   []TargetOutput
 }
 `)
 	serviceFile := filepath.Join(fixtureRoot, "internal", "service", "service.go")
@@ -660,7 +671,7 @@ func (f *fakeService) Sync(ctx context.Context, opts usecase.SyncOptions) (*usec
 }
 
 func (f *fakeService) ListTargets(ctx context.Context) ([]domain.TargetInfo, error) {
-	return []domain.TargetInfo{{Name: "codex", Enabled: true, OutputDir: ".", EmitPaths: []string{"AGENTS.md"}}}, nil
+	return []domain.TargetInfo{{Name: "codex", Enabled: true, OutputDir: ".", EmitPaths: []string{"AGENTS.md"}, Outputs: []domain.TargetOutput{{Path: "AGENTS.md", Kind: domain.OutputKindContext, Format: "markdown"}}}}, nil
 }
 
 func (f *fakeService) Ping(ctx context.Context, req service.PingRequest) (service.PingResult, error) {

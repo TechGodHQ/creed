@@ -102,7 +102,40 @@ func TestInProcessMCPListsGeneratedToolsAndCallsSync(t *testing.T) {
 
 func TestCallListTargetsReturnsStructuredJSON(t *testing.T) {
 	svc := &fakeService{
-		listTargetsResult: []domain.TargetInfo{{Name: "claude", DisplayName: "Claude", Enabled: true, OutputDir: "."}},
+		listTargetsResult: []domain.TargetInfo{
+			{
+				Name:        "aider",
+				DisplayName: "Aider",
+				Enabled:     false,
+				OutputDir:   ".",
+				EmitPaths:   []string{".aider.conf.yml", "CONVENTIONS.md"},
+				Outputs: []domain.TargetOutput{
+					{Path: ".aider.conf.yml", Kind: domain.OutputKindConfig, Format: "yaml"},
+					{Path: "CONVENTIONS.md", Kind: domain.OutputKindContext, Format: "markdown"},
+				},
+			},
+			{
+				Name:        "claude",
+				DisplayName: "Claude",
+				Enabled:     true,
+				OutputDir:   ".",
+				EmitPaths:   []string{"CLAUDE.md", ".claude/skills"},
+				Outputs: []domain.TargetOutput{
+					{Path: "CLAUDE.md", Kind: domain.OutputKindContext, Format: "markdown"},
+					{Path: ".claude/skills", Kind: domain.OutputKindSkillDir, Format: "markdown"},
+				},
+			},
+			{
+				Name:        "cursor",
+				DisplayName: "Cursor",
+				Enabled:     false,
+				OutputDir:   ".",
+				EmitPaths:   []string{".cursor/rules/"},
+				Outputs: []domain.TargetOutput{
+					{Path: ".cursor/rules/", Kind: domain.OutputKindSkillDir, Format: "markdown"},
+				},
+			},
+		},
 	}
 	server := NewServer(svc)
 
@@ -118,8 +151,28 @@ func TestCallListTargetsReturnsStructuredJSON(t *testing.T) {
 	if err := json.Unmarshal(result.Result, &targets); err != nil {
 		t.Fatalf("unmarshal result: %v", err)
 	}
-	if len(targets) != 1 || targets[0].Name != "claude" {
-		t.Fatalf("targets = %#v", targets)
+	wantOutputs := map[string][]domain.TargetOutput{
+		"aider": {
+			{Path: ".aider.conf.yml", Kind: domain.OutputKindConfig, Format: "yaml"},
+			{Path: "CONVENTIONS.md", Kind: domain.OutputKindContext, Format: "markdown"},
+		},
+		"claude": {
+			{Path: "CLAUDE.md", Kind: domain.OutputKindContext, Format: "markdown"},
+			{Path: ".claude/skills", Kind: domain.OutputKindSkillDir, Format: "markdown"},
+		},
+		"cursor": {{Path: ".cursor/rules/", Kind: domain.OutputKindSkillDir, Format: "markdown"}},
+	}
+	if len(targets) != len(wantOutputs) {
+		t.Fatalf("targets = %#v, want %d descriptor-bearing targets", targets, len(wantOutputs))
+	}
+	for _, target := range targets {
+		want, ok := wantOutputs[target.Name]
+		if !ok {
+			t.Fatalf("unexpected target %#v", target)
+		}
+		if !reflect.DeepEqual(target.Outputs, want) {
+			t.Fatalf("target %s Outputs = %#v, want %#v", target.Name, target.Outputs, want)
+		}
 	}
 }
 
