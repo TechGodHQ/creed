@@ -38,7 +38,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
 
 ### 3) Regression and dogfood cleanup
 
-- [ ] **T5: Add descriptor/emission ordering regression** *(~1h)* — Linear: COD-330
+- [x] **T5: Add descriptor/emission ordering regression** *(~1h)* — Linear: COD-330
   - **Files:** `internal/usecase/*_test.go`, `internal/integration/*_test.go`
   - **Do:** assert descriptor order matches emitted top-level file ordering, with deterministic per-directory skill file expansion.
   - **Verify:** repeated sync returns identical path ordering.

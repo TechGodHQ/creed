@@ -623,6 +623,66 @@ func TestPrepareFiles_DeterministicOrdering(t *testing.T) {
 	}
 }
 
+func TestSync_DescriptorOrderMatchesEmittedPathOrder(t *testing.T) {
+	tests := []struct {
+		name      string
+		outputDir string
+	}{
+		{name: "agents"},
+		{name: "aider"},
+		{name: "claude"},
+		{name: "codex"},
+		{name: "cursor", outputDir: "generated"},
+		{name: "windsurf"},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			src := newTestSource()
+			src.manifest.Targets = []domain.TargetConfig{{
+				Name:      tt.name,
+				Enabled:   true,
+				OutputDir: tt.outputDir,
+			}}
+			tmpDir := t.TempDir()
+			engine := NewSyncEngine(src, localfs.NewEmitter(tmpDir))
+
+			first, err := engine.Sync(context.Background(), SyncOptions{})
+			if err != nil {
+				t.Fatalf("first sync: %v", err)
+			}
+			firstResult := findTargetResult(t, first, tt.name)
+			if firstResult.Error != nil {
+				t.Fatalf("first sync target error: %v", firstResult.Error)
+			}
+
+			target, err := domain.LookupTarget(tt.name)
+			if err != nil {
+				t.Fatalf("lookup target: %v", err)
+			}
+			target = targetWithOutputDir(target, normalizeTargetConfig(src.manifest.Targets[0]).OutputDir)
+			expected := expandedDescriptorPaths(target.Outputs(""), src.manifest.Skills)
+			assertStringSlicesEqual(t, emittedResultPaths(firstResult.Files), expected)
+
+			second, err := engine.Sync(context.Background(), SyncOptions{})
+			if err != nil {
+				t.Fatalf("second sync: %v", err)
+			}
+			secondResult := findTargetResult(t, second, tt.name)
+			if secondResult.Error != nil {
+				t.Fatalf("second sync target error: %v", secondResult.Error)
+			}
+			assertStringSlicesEqual(t, emittedResultPaths(secondResult.Files), expected)
+			if secondResult.FilesWritten != 0 {
+				t.Fatalf("second sync should be idempotent and write 0 files, wrote %d", secondResult.FilesWritten)
+			}
+			if secondResult.FilesSkipped != len(expected) {
+				t.Fatalf("second sync should skip %d files, skipped %d", len(expected), secondResult.FilesSkipped)
+			}
+		})
+	}
+}
+
 func TestSync_AiderWithOutputDirEmitsConfigAndContext(t *testing.T) {
 	src := newTestSource()
 	src.manifest.Targets = []domain.TargetConfig{{Name: "aider", Enabled: true, OutputDir: "generated"}}
@@ -733,6 +793,20 @@ func emittedResultPaths(files []FileResult) []string {
 	paths := make([]string, 0, len(files))
 	for _, file := range files {
 		paths = append(paths, file.Path)
+	}
+	return paths
+}
+
+func expandedDescriptorPaths(outputs []domain.TargetOutput, skills []domain.SkillEntry) []string {
+	paths := make([]string, 0, len(outputs)+len(skills))
+	for _, output := range outputs {
+		if output.Kind == domain.OutputKindSkillDir {
+			for _, skill := range skills {
+				paths = append(paths, output.Path+skill.Name+".md")
+			}
+			continue
+		}
+		paths = append(paths, output.Path)
 	}
 	return paths
 }
