@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/techgodhq/creed/internal/adapters/localfs"
+	"github.com/techgodhq/creed/internal/domain"
 	"github.com/techgodhq/creed/internal/usecase"
 )
 
@@ -67,6 +68,89 @@ func TestInitCreatesStarterScaffoldAndPracticalDefaultTargets(t *testing.T) {
 	}
 	if len(configs) != 2 || configs[0].Name != "project" || configs[1].Name != "development" {
 		t.Fatalf("default configs = %#v, want project and development", configs)
+	}
+}
+
+func TestListTargetsExposesStructuredOutputDescriptors(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	targets, err := svc.ListTargets(ctx)
+	if err != nil {
+		t.Fatalf("ListTargets() error = %v", err)
+	}
+	if len(targets) == 0 {
+		t.Fatal("ListTargets() returned no targets")
+	}
+
+	for _, target := range targets {
+		t.Run(target.Name, func(t *testing.T) {
+			if len(target.Outputs) == 0 {
+				t.Fatalf("target %s Outputs is empty", target.Name)
+			}
+			if len(target.EmitPaths) != len(target.Outputs) {
+				t.Fatalf("target %s EmitPaths len = %d, Outputs len = %d", target.Name, len(target.EmitPaths), len(target.Outputs))
+			}
+			for i, output := range target.Outputs {
+				if output.Path == "" {
+					t.Fatalf("target %s output %d has empty path: %#v", target.Name, i, output)
+				}
+				if output.Kind == "" {
+					t.Fatalf("target %s output %d has empty kind: %#v", target.Name, i, output)
+				}
+				if output.Format == "" {
+					t.Fatalf("target %s output %d has empty format: %#v", target.Name, i, output)
+				}
+				if target.EmitPaths[i] != output.Path {
+					t.Fatalf("target %s EmitPaths[%d] = %q, Outputs[%d].Path = %q", target.Name, i, target.EmitPaths[i], i, output.Path)
+				}
+			}
+		})
+	}
+
+	for _, tt := range []struct {
+		name string
+		want []domain.TargetOutput
+	}{
+		{
+			name: "aider",
+			want: []domain.TargetOutput{
+				{Path: ".aider.conf.yml", Kind: domain.OutputKindConfig, Format: "yaml"},
+				{Path: "CONVENTIONS.md", Kind: domain.OutputKindContext, Format: "markdown"},
+			},
+		},
+		{
+			name: "claude",
+			want: []domain.TargetOutput{
+				{Path: "CLAUDE.md", Kind: domain.OutputKindContext, Format: "markdown"},
+				{Path: ".claude/skills/", Kind: domain.OutputKindSkillDir, Format: "markdown"},
+			},
+		},
+		{
+			name: "cursor",
+			want: []domain.TargetOutput{
+				{Path: ".cursor/rules/", Kind: domain.OutputKindSkillDir, Format: "markdown"},
+			},
+		},
+	} {
+		t.Run("exact-"+tt.name, func(t *testing.T) {
+			target, ok := findTargetInfo(targets, tt.name)
+			if !ok {
+				t.Fatalf("target %s not found in %#v", tt.name, targets)
+			}
+			if len(target.Outputs) != len(tt.want) {
+				t.Fatalf("target %s Outputs len = %d, want %d: %#v", tt.name, len(target.Outputs), len(tt.want), target.Outputs)
+			}
+			for i, want := range tt.want {
+				if got := target.Outputs[i]; got != want {
+					t.Fatalf("target %s Outputs[%d] = %#v, want %#v", tt.name, i, got, want)
+				}
+			}
+		})
 	}
 }
 
@@ -273,6 +357,15 @@ func writeSkill(t *testing.T, root, name, content string) {
 	if err := os.WriteFile(filepath.Join(root, ".creed", "skills", name+".md"), []byte(content), 0644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+func findTargetInfo(targets []domain.TargetInfo, name string) (domain.TargetInfo, bool) {
+	for _, target := range targets {
+		if target.Name == name {
+			return target, true
+		}
+	}
+	return domain.TargetInfo{}, false
 }
 
 func mustRead(t *testing.T, path string) string {

@@ -25,7 +25,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
 
 ### 2) Inspectable target descriptors
 
-- [ ] **T3: Expose output descriptors through service target listing** *(~1h 30m)* — Linear: COD-328
+- [x] **T3: Expose output descriptors through service target listing** *(~1h 30m)* — Linear: COD-328
   - **Files:** `internal/domain/types.go`, `internal/service/impl.go`, service tests
   - **Do:** extend target listing DTOs to include structured output descriptors while preserving `EmitPaths` compatibility.
   - **Verify:** service tests assert every target includes descriptor path/kind/format and legacy emit paths remain present.

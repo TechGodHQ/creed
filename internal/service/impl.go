@@ -194,12 +194,14 @@ func (s *Implementation) ListTargets(ctx context.Context) ([]domain.TargetInfo, 
 			return nil, err
 		}
 		cfg := configured[target.Name]
+		outputs := target.Outputs("")
 		infos = append(infos, domain.TargetInfo{
 			Name:        target.Name,
 			DisplayName: target.DisplayName,
 			Enabled:     cfg.Enabled,
 			OutputDir:   cfg.OutputDir,
 			EmitPaths:   target.EmitPaths(""),
+			Outputs:     outputs,
 		})
 	}
 	return infos, nil
