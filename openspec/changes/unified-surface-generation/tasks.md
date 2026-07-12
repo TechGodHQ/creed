@@ -55,7 +55,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
 
 ### 5) Golden path and generation idempotency
 
-- [ ] **T7: Add new-operation golden path fixture** *(~2h)* — Linear: COD-339
+- [x] **T7: Add new-operation golden path fixture** *(~2h)* — Linear: COD-339
   - **Files:** `internal/codegen` test fixtures, generated temp outputs, CLI/MCP/HTTP tests
   - **Do:** create a fixture `Service` with a representative new operation and prove generated CLI, MCP, and HTTP surfaces compile and delegate without handwritten per-surface mappings.
   - **Verify:** fixture fails if any surface requires manual switch/registration work.
