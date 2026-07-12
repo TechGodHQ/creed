@@ -103,7 +103,12 @@ type TargetInfo struct {
 	// OutputDir is the directory relative to project root where files are emitted.
 	OutputDir string
 	// EmitPaths lists the file paths this target expects.
+	//
+	// Deprecated: use Outputs for structured descriptor data. EmitPaths is kept
+	// for compatibility with existing callers and human-oriented displays.
 	EmitPaths []string
+	// Outputs lists the structured output descriptors this target expects.
+	Outputs []TargetOutput
 }
 
 // SourceConfig configures the source backend for reading creed data.
