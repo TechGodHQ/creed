@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -465,6 +466,251 @@ func TestServiceMethodsRejectsUnsupportedInputShapes(t *testing.T) {
 	}
 	if strings.Contains(message, "Good.req") {
 		t.Fatalf("supported tagged request was rejected:\n%s", message)
+	}
+}
+
+func TestNewOperationGoldenPathGeneratesCallableCLIMCPAndHTTP(t *testing.T) {
+	fixtureRoot := filepath.Join(t.TempDir(), "golden")
+	for _, dir := range []string{
+		"internal/service",
+		"internal/usecase",
+		"internal/domain",
+		"cmd/gen",
+		"internal/mcp/gen",
+		"internal/ops/gen",
+		"internal/httpapi/gen",
+	} {
+		if err := os.MkdirAll(filepath.Join(fixtureRoot, dir), 0o755); err != nil {
+			t.Fatalf("create fixture dir %s: %v", dir, err)
+		}
+	}
+	writeFixtureFile(t, filepath.Join(fixtureRoot, "go.mod"), `module github.com/techgodhq/creed
+
+go 1.26.2
+
+require (
+	github.com/mark3labs/mcp-go v0.55.1
+	github.com/spf13/cobra v1.10.2
+)
+`)
+	goSum, err := os.ReadFile(filepath.Join(repoRoot(t), "go.sum"))
+	if err != nil {
+		t.Fatalf("read repo go.sum: %v", err)
+	}
+	writeFixtureFile(t, filepath.Join(fixtureRoot, "go.sum"), string(goSum))
+	writeFixtureFile(t, filepath.Join(fixtureRoot, "internal", "usecase", "usecase.go"), `package usecase
+
+type SyncOptions struct {
+	Target string `+"`json:\"target,omitempty\"`"+`
+	DryRun bool   `+"`json:\"dry_run,omitempty\"`"+`
+	Force  bool   `+"`json:\"force,omitempty\"`"+`
+}
+
+type TargetResult struct {
+	Target          string
+	FilesWritten    int
+	FilesWouldWrite int
+	FilesSkipped    int
+	FilesFailed     int
+	Files           []FileResult
+}
+
+type FileResult struct {
+	Path   string
+	Status string
+}
+
+type SyncResult struct {
+	Targets []TargetResult
+}
+
+func (r *SyncResult) HasErrors() bool { return false }
+`)
+	writeFixtureFile(t, filepath.Join(fixtureRoot, "internal", "domain", "domain.go"), `package domain
+
+type TargetInfo struct {
+	Name      string
+	Enabled   bool
+	OutputDir string
+	EmitPaths []string
+}
+`)
+	serviceFile := filepath.Join(fixtureRoot, "internal", "service", "service.go")
+	writeFixtureFile(t, serviceFile, `package service
+
+import (
+	"context"
+
+	"github.com/techgodhq/creed/internal/domain"
+	"github.com/techgodhq/creed/internal/usecase"
+)
+
+type PingRequest struct {
+	Message string `+"`json:\"message\"`"+`
+	Loud    bool   `+"`json:\"loud,omitempty\"`"+`
+}
+
+type PingResult struct {
+	Message string `+"`json:\"message\"`"+`
+	Loud    bool   `+"`json:\"loud\"`"+`
+}
+
+type Service interface {
+	// Sync syncs configured targets.
+	Sync(ctx context.Context, opts usecase.SyncOptions) (*usecase.SyncResult, error)
+	// ListTargets lists configured targets.
+	ListTargets(ctx context.Context) ([]domain.TargetInfo, error)
+	// Ping proves a new DTO-backed operation is generated across all surfaces.
+	Ping(ctx context.Context, req PingRequest) (PingResult, error)
+}
+`)
+
+	if err := run([]string{
+		"--service", serviceFile,
+		"--out-cli", filepath.Join(fixtureRoot, "cmd", "gen"),
+		"--out-mcp", filepath.Join(fixtureRoot, "internal", "mcp", "gen"),
+		"--out-ops", filepath.Join(fixtureRoot, "internal", "ops", "gen"),
+		"--out-http", filepath.Join(fixtureRoot, "internal", "httpapi", "gen"),
+	}); err != nil {
+		t.Fatalf("run() error = %v", err)
+	}
+
+	writeFixtureFile(t, filepath.Join(fixtureRoot, "golden_test.go"), `package creed_test
+
+import (
+	"bytes"
+	"context"
+	"encoding/json"
+	"testing"
+
+	cligen "github.com/techgodhq/creed/cmd/gen"
+	"github.com/techgodhq/creed/internal/domain"
+	httpgen "github.com/techgodhq/creed/internal/httpapi/gen"
+	mcpgen "github.com/techgodhq/creed/internal/mcp/gen"
+	"github.com/techgodhq/creed/internal/service"
+	"github.com/techgodhq/creed/internal/usecase"
+)
+
+func TestGeneratedSurfacesDelegateNewOperation(t *testing.T) {
+	svc := &fakeService{}
+
+	var cmdFound bool
+	for _, command := range cligen.Commands(svc) {
+		if command.Name() != "ping" {
+			continue
+		}
+		cmdFound = true
+		var out bytes.Buffer
+		command.SetOut(&out)
+		command.SetArgs([]string{"hello", "--loud"})
+		if err := command.Execute(); err != nil {
+			t.Fatalf("generated CLI ping command from registry: %v", err)
+		}
+		break
+	}
+	if !cmdFound {
+		t.Fatalf("generated CLI commands missing ping")
+	}
+	if svc.cliMessage != "hello" || !svc.cliLoud {
+		t.Fatalf("CLI ping call = (%q, %t)", svc.cliMessage, svc.cliLoud)
+	}
+
+	mcpTools := mcpgen.GeneratedTools(svc)
+	mcpHandler, ok := mcpToolHandler(mcpTools, "ping")
+	if !ok {
+		t.Fatalf("generated MCP tools missing ping: %#v", mcpTools)
+	}
+	if _, err := mcpHandler(context.Background(), json.RawMessage([]byte("{\"message\":\"mcp\",\"loud\":true}"))); err != nil {
+		t.Fatalf("generated MCP ping handler from registry: %v", err)
+	}
+	if svc.mcpMessage != "mcp" || !svc.mcpLoud {
+		t.Fatalf("MCP ping call = (%q, %t)", svc.mcpMessage, svc.mcpLoud)
+	}
+
+	httpOps := httpgen.GeneratedOperations(svc)
+	httpHandler, ok := httpOperationHandler(httpOps, "ping")
+	if !ok {
+		t.Fatalf("generated HTTP operations missing ping: %#v", httpOps)
+	}
+	result, err := httpHandler(context.Background(), json.RawMessage([]byte("{\"message\":\"http\",\"loud\":true}")))
+	if err != nil {
+		t.Fatalf("generated HTTP ping handler: %v", err)
+	}
+	pingResult, ok := result.(service.PingResult)
+	if !ok || pingResult.Message != "http" || !pingResult.Loud {
+		t.Fatalf("HTTP ping result = %#v", result)
+	}
+	if svc.httpMessage != "http" || !svc.httpLoud {
+		t.Fatalf("HTTP ping call = (%q, %t)", svc.httpMessage, svc.httpLoud)
+	}
+}
+
+type fakeService struct {
+	cliMessage  string
+	cliLoud     bool
+	mcpMessage  string
+	mcpLoud     bool
+	httpMessage string
+	httpLoud    bool
+	calls       int
+}
+
+func (f *fakeService) Sync(ctx context.Context, opts usecase.SyncOptions) (*usecase.SyncResult, error) {
+	return &usecase.SyncResult{}, nil
+}
+
+func (f *fakeService) ListTargets(ctx context.Context) ([]domain.TargetInfo, error) {
+	return []domain.TargetInfo{{Name: "codex", Enabled: true, OutputDir: ".", EmitPaths: []string{"AGENTS.md"}}}, nil
+}
+
+func (f *fakeService) Ping(ctx context.Context, req service.PingRequest) (service.PingResult, error) {
+	f.calls++
+	switch f.calls {
+	case 1:
+		f.cliMessage, f.cliLoud = req.Message, req.Loud
+	case 2:
+		f.mcpMessage, f.mcpLoud = req.Message, req.Loud
+	case 3:
+		f.httpMessage, f.httpLoud = req.Message, req.Loud
+	}
+	return service.PingResult{Message: req.Message, Loud: req.Loud}, nil
+}
+
+func mcpToolHandler(tools []mcpgen.GeneratedTool, name string) (mcpgen.ToolHandler, bool) {
+	for _, tool := range tools {
+		if tool.Spec.Name == name {
+			return tool.Handler, true
+		}
+	}
+	return nil, false
+}
+
+func httpOperationHandler(operations []httpgen.GeneratedOperation, name string) (httpgen.OperationHandler, bool) {
+	for _, operation := range operations {
+		if operation.Descriptor.OperationName == name {
+			return operation.Handler, true
+		}
+	}
+	return nil, false
+}
+`)
+
+	cmd := exec.Command("go", "test", "./...")
+	cmd.Dir = fixtureRoot
+	cmd.Env = append(os.Environ(), "GOWORK=off", "GOFLAGS=-mod=mod")
+	output, err := cmd.CombinedOutput()
+	if err != nil {
+		t.Fatalf("golden fixture go test failed: %v\n%s", err, output)
+	}
+}
+
+func writeFixtureFile(t *testing.T, path, content string) {
+	t.Helper()
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		t.Fatalf("create fixture parent for %s: %v", path, err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write fixture file %s: %v", path, err)
 	}
 }
 
