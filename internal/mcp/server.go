@@ -11,6 +11,7 @@ import (
 	serverlib "github.com/mark3labs/mcp-go/server"
 
 	"github.com/techgodhq/creed/internal/mcp/gen"
+	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
 )
 
@@ -23,16 +24,18 @@ type Tool struct {
 
 // CallResult is the structured JSON-compatible response returned by a tool call.
 type CallResult struct {
-	Tool   string          `json:"tool"`
-	OK     bool            `json:"ok"`
-	Result json.RawMessage `json:"result,omitempty"`
-	Error  string          `json:"error,omitempty"`
+	Tool      string          `json:"tool"`
+	Operation string          `json:"operation"`
+	OK        bool            `json:"ok"`
+	Result    json.RawMessage `json:"result,omitempty"`
+	Error     string          `json:"error,omitempty"`
 }
 
 type registeredTool struct {
 	Tool
-	mcpTool mcplib.Tool
-	handler gen.ToolHandler
+	mcpTool       mcplib.Tool
+	handler       gen.ToolHandler
+	operationName string
 }
 
 // Server exposes generated Service-backed MCP tools.
@@ -113,13 +116,13 @@ func (s *Server) Call(ctx context.Context, name string, payload json.RawMessage)
 	}
 	result, err := tool.handler(ctx, payload)
 	if err != nil {
-		return CallResult{Tool: name, OK: false, Error: err.Error()}, nil
+		return CallResult{Tool: name, Operation: tool.operationName, OK: false, Error: err.Error()}, nil
 	}
 	data, err := json.Marshal(result)
 	if err != nil {
 		return CallResult{}, fmt.Errorf("marshal %s result: %w", name, err)
 	}
-	return CallResult{Tool: name, OK: true, Result: data}, nil
+	return CallResult{Tool: name, Operation: tool.operationName, OK: true, Result: data}, nil
 }
 
 func (s *Server) registerGeneratedTools() {
@@ -129,14 +132,19 @@ func (s *Server) registerGeneratedTools() {
 }
 
 func (s *Server) register(tool gen.GeneratedTool) {
+	operationName := tool.Spec.Name
+	if descriptor, ok := opsgen.ByMethodName(tool.Spec.MethodName); ok {
+		operationName = descriptor.OperationName
+	}
 	registered := registeredTool{
 		Tool: Tool{
 			Name:        tool.Spec.Name,
 			Description: tool.Spec.Description,
 			Params:      externalParams(tool.Spec.ParamNames),
 		},
-		mcpTool: tool.Tool,
-		handler: tool.Handler,
+		mcpTool:       tool.Tool,
+		handler:       tool.Handler,
+		operationName: operationName,
 	}
 	s.tools[registered.Name] = registered
 	s.mcpServer.AddTool(registered.mcpTool, s.mcpHandler(registered.Name))
