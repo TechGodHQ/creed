@@ -104,8 +104,8 @@ type TargetInfo struct {
 	OutputDir string
 	// EmitPaths lists the file paths this target expects.
 	//
-	// Deprecated: use Outputs for structured descriptor data. EmitPaths is kept
-	// for compatibility with existing callers and human-oriented displays.
+	// Prefer Outputs for structured descriptor data in new callers. EmitPaths is
+	// kept for compatibility with existing callers and human-oriented displays.
 	EmitPaths []string
 	// Outputs lists the structured output descriptors this target expects.
 	Outputs []TargetOutput
