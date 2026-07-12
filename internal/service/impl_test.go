@@ -71,6 +71,23 @@ func TestInitCreatesStarterScaffoldAndPracticalDefaultTargets(t *testing.T) {
 	}
 }
 
+func TestEmitPathsFromOutputsDerivesOrderedPaths(t *testing.T) {
+	outputs := []domain.TargetOutput{
+		{Path: ".aider.conf.yml", Kind: domain.OutputKindConfig, Format: "yaml"},
+		{Path: "CONVENTIONS.md", Kind: domain.OutputKindContext, Format: "markdown"},
+	}
+
+	paths := emitPathsFromOutputs(outputs)
+
+	if got, want := strings.Join(paths, ","), ".aider.conf.yml,CONVENTIONS.md"; got != want {
+		t.Fatalf("emitPathsFromOutputs() = %q, want %q", got, want)
+	}
+	outputs[0].Path = "mutated"
+	if paths[0] != ".aider.conf.yml" {
+		t.Fatalf("emitPathsFromOutputs() returned paths aliased to outputs: %#v", paths)
+	}
+}
+
 func TestListTargetsExposesStructuredOutputDescriptors(t *testing.T) {
 	root := t.TempDir()
 	svc := New(root)

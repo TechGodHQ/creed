@@ -200,11 +200,19 @@ func (s *Implementation) ListTargets(ctx context.Context) ([]domain.TargetInfo, 
 			DisplayName: target.DisplayName,
 			Enabled:     cfg.Enabled,
 			OutputDir:   cfg.OutputDir,
-			EmitPaths:   target.EmitPaths(""),
+			EmitPaths:   emitPathsFromOutputs(outputs),
 			Outputs:     outputs,
 		})
 	}
 	return infos, nil
+}
+
+func emitPathsFromOutputs(outputs []domain.TargetOutput) []string {
+	paths := make([]string, len(outputs))
+	for i, output := range outputs {
+		paths[i] = output.Path
+	}
+	return paths
 }
 
 // EnableTarget enables a target in the manifest.
