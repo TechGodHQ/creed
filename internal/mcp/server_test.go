@@ -92,7 +92,7 @@ func TestInProcessMCPListsGeneratedToolsAndCallsSync(t *testing.T) {
 	if !ok {
 		t.Fatalf("structured content = %#v, want map", callResult.StructuredContent)
 	}
-	if structured["ok"] != true || structured["tool"] != "sync" {
+	if structured["ok"] != true || structured["tool"] != "sync" || structured["operation"] != "sync" {
 		t.Fatalf("structured content = %#v", structured)
 	}
 	if svc.syncOptions.Target != "claude" || !svc.syncOptions.DryRun {
@@ -110,7 +110,7 @@ func TestCallListTargetsReturnsStructuredJSON(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call returned transport error: %v", err)
 	}
-	if !result.OK || result.Tool != "list_targets" {
+	if !result.OK || result.Tool != "list_targets" || result.Operation != "list_targets" {
 		t.Fatalf("result = %#v, want ok list_targets response", result)
 	}
 
@@ -172,7 +172,7 @@ func TestCallReturnsStructuredServiceError(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Call returned transport error: %v", err)
 	}
-	if result.OK || result.Error != "fixture missing manifest" {
+	if result.OK || result.Operation != "sync" || result.Error != "fixture missing manifest" {
 		t.Fatalf("result = %#v, want structured service error", result)
 	}
 }

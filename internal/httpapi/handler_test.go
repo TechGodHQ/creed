@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -60,13 +61,14 @@ func TestCallSyncDelegatesOptionsAndReturnsStructuredResult(t *testing.T) {
 	}
 
 	var body struct {
-		OK     bool                `json:"ok"`
-		Result *usecase.SyncResult `json:"result"`
+		OK        bool                `json:"ok"`
+		Operation string              `json:"operation"`
+		Result    *usecase.SyncResult `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !body.OK || body.Result == nil || len(body.Result.Targets) != 1 || body.Result.Targets[0].Target != "claude" {
+	if !body.OK || body.Operation != "sync" || body.Result == nil || len(body.Result.Targets) != 1 || body.Result.Targets[0].Target != "claude" {
 		t.Fatalf("body = %+v", body)
 	}
 }
@@ -86,14 +88,42 @@ func TestCallListTargetsDelegatesAndReturnsTargets(t *testing.T) {
 	}
 
 	var body struct {
-		OK     bool                `json:"ok"`
-		Result []domain.TargetInfo `json:"result"`
+		OK        bool                `json:"ok"`
+		Operation string              `json:"operation"`
+		Result    []domain.TargetInfo `json:"result"`
 	}
 	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
 		t.Fatalf("decode response: %v", err)
 	}
-	if !body.OK || len(body.Result) != 1 || body.Result[0].Name != "claude" {
+	if !body.OK || body.Operation != "list_targets" || len(body.Result) != 1 || body.Result[0].Name != "claude" {
 		t.Fatalf("body = %+v", body)
+	}
+}
+
+func TestCallSyncServiceErrorReturnsStructuredEnvelope(t *testing.T) {
+	svc := &fakeService{syncErr: errors.New("fixture missing manifest")}
+	server := httptest.NewServer(NewHandler(svc))
+	defer server.Close()
+
+	resp, err := http.Post(server.URL+"/v1/operations/sync", "application/json", bytes.NewBufferString(`{}`))
+	if err != nil {
+		t.Fatalf("POST sync: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusBadRequest {
+		t.Fatalf("status = %d, want %d", resp.StatusCode, http.StatusBadRequest)
+	}
+
+	var body struct {
+		OK        bool   `json:"ok"`
+		Operation string `json:"operation"`
+		Error     string `json:"error"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&body); err != nil {
+		t.Fatalf("decode response: %v", err)
+	}
+	if body.OK || body.Operation != "sync" || body.Error != "fixture missing manifest" {
+		t.Fatalf("body = %+v, want structured sync error envelope", body)
 	}
 }
 
@@ -147,6 +177,7 @@ type fakeService struct {
 
 	syncOptions usecase.SyncOptions
 	syncResult  *usecase.SyncResult
+	syncErr     error
 
 	listTargetsResult []domain.TargetInfo
 }
@@ -155,6 +186,9 @@ func (f *fakeService) Init(ctx context.Context, projectName string) error { retu
 
 func (f *fakeService) Sync(ctx context.Context, opts usecase.SyncOptions) (*usecase.SyncResult, error) {
 	f.syncOptions = opts
+	if f.syncErr != nil {
+		return nil, f.syncErr
+	}
 	if f.syncResult != nil {
 		return f.syncResult, nil
 	}

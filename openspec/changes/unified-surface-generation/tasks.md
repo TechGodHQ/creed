@@ -47,7 +47,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
   - **Verify:** `httptest` can list operations and call `sync`/`list_targets` using a fake Service.
   - **Depends on:** T1, T2
 
-- [ ] **T6: Standardize error envelopes across MCP and HTTP** *(~1h)* — Linear: COD-338
+- [x] **T6: Standardize error envelopes across MCP and HTTP** *(~1h)* — Linear: COD-338
   - **Files:** MCP runtime, HTTP runtime, shared generated/runtime helpers as appropriate, tests
   - **Do:** ensure service errors produce structured envelopes with operation name, ok/error state, and message across MCP and HTTP.
   - **Verify:** tests cover service error behavior for both surfaces.

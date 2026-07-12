@@ -23,7 +23,7 @@ func NewHandler(s service.Service) http.Handler {
 			return
 		}
 		if r.Method != http.MethodGet {
-			methodNotAllowed(w, http.MethodGet)
+			methodNotAllowed(w, http.MethodGet, "")
 			return
 		}
 		descriptors := make([]opsgen.OperationDescriptor, 0, len(operations))
@@ -41,25 +41,25 @@ func NewHandler(s service.Service) http.Handler {
 				return
 			}
 			if r.Method != http.MethodPost {
-				methodNotAllowed(w, http.MethodPost)
+				methodNotAllowed(w, http.MethodPost, operation.Descriptor.OperationName)
 				return
 			}
 			defer r.Body.Close()
 			payload, err := io.ReadAll(r.Body)
 			if err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Error: err.Error()})
+				writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Operation: operation.Descriptor.OperationName, Error: err.Error()})
 				return
 			}
 			if !json.Valid(defaultPayload(payload)) {
-				writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Error: "invalid JSON payload"})
+				writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Operation: operation.Descriptor.OperationName, Error: "invalid JSON payload"})
 				return
 			}
 			result, err := operation.Handler(r.Context(), json.RawMessage(payload))
 			if err != nil {
-				writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Error: err.Error()})
+				writeJSON(w, http.StatusBadRequest, errorResponse{OK: false, Operation: operation.Descriptor.OperationName, Error: err.Error()})
 				return
 			}
-			writeJSON(w, http.StatusOK, callResponse{OK: true, Result: result})
+			writeJSON(w, http.StatusOK, callResponse{OK: true, Operation: operation.Descriptor.OperationName, Result: result})
 		})
 	}
 
@@ -71,18 +71,20 @@ type catalogResponse struct {
 }
 
 type callResponse struct {
-	OK     bool `json:"ok"`
-	Result any  `json:"result,omitempty"`
+	OK        bool   `json:"ok"`
+	Operation string `json:"operation"`
+	Result    any    `json:"result,omitempty"`
 }
 
 type errorResponse struct {
-	OK    bool   `json:"ok"`
-	Error string `json:"error"`
+	OK        bool   `json:"ok"`
+	Operation string `json:"operation,omitempty"`
+	Error     string `json:"error"`
 }
 
-func methodNotAllowed(w http.ResponseWriter, allowed string) {
+func methodNotAllowed(w http.ResponseWriter, allowed string, operation string) {
 	w.Header().Set("Allow", allowed)
-	writeJSON(w, http.StatusMethodNotAllowed, errorResponse{OK: false, Error: "method not allowed"})
+	writeJSON(w, http.StatusMethodNotAllowed, errorResponse{OK: false, Operation: operation, Error: "method not allowed"})
 }
 
 func notFound(w http.ResponseWriter) {
