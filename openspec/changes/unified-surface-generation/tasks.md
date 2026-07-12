@@ -41,7 +41,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
 
 ### 4) HTTP surface
 
-- [ ] **T5: Add generated HTTP operation surface** *(~2h 30m)* — Linear: COD-337
+- [x] **T5: Add generated HTTP operation surface** *(~2h 30m)* — Linear: COD-337
   - **Files:** new `internal/httpapi/` or equivalent, `internal/codegen/`, generated HTTP files, tests
   - **Do:** add `http.Handler` construction backed by `service.Service`; generate operation catalog and JSON operation call routes from descriptors.
   - **Verify:** `httptest` can list operations and call `sync`/`list_targets` using a fake Service.
