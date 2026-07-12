@@ -30,7 +30,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
   - **Do:** extend target listing DTOs to include structured output descriptors while preserving `EmitPaths` compatibility.
   - **Verify:** service tests assert every target includes descriptor path/kind/format and legacy emit paths remain present.
 
-- [ ] **T4: Surface descriptors in CLI/MCP list-target behavior** *(~1h 30m)* — Linear: COD-329
+- [x] **T4: Surface descriptors in CLI/MCP list-target behavior** *(~1h 30m)* — Linear: COD-329
   - **Files:** generated CLI/MCP command behavior, `internal/codegen` if needed, command/MCP tests
   - **Do:** ensure list-target surfaces expose descriptor details in a stable, agent-readable way without breaking human CLI output.
   - **Verify:** CLI and MCP tests cover at least `aider`, `claude`, and `cursor` output descriptors.

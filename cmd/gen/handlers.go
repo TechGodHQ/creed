@@ -8,6 +8,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/techgodhq/creed/internal/domain"
 	"github.com/techgodhq/creed/internal/service"
 	"github.com/techgodhq/creed/internal/usecase"
 )
@@ -94,9 +95,17 @@ func runListTargets(cmd *cobra.Command, s service.Service, args []string) error 
 		if target.Enabled {
 			status = "enabled"
 		}
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\t%s\t%s\n", target.Name, status, target.OutputDir, strings.Join(target.EmitPaths, ","))
+		fmt.Fprintf(cmd.OutOrStdout(), "%s	%s	%s	%s	%s\n", target.Name, status, target.OutputDir, strings.Join(target.EmitPaths, ","), formatTargetOutputs(target.Outputs))
 	}
 	return nil
+}
+
+func formatTargetOutputs(outputs []domain.TargetOutput) string {
+	formatted := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		formatted = append(formatted, fmt.Sprintf("%s|%s|%s", output.Path, output.Kind, output.Format))
+	}
+	return strings.Join(formatted, ",")
 }
 
 func runEnableTarget(cmd *cobra.Command, s service.Service, args []string) error {

@@ -804,6 +804,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/techgodhq/creed/internal/domain"
 	"github.com/techgodhq/creed/internal/service"
 	"github.com/techgodhq/creed/internal/usecase"
 )
@@ -856,7 +857,29 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 	case "ListSkills":
 		fmt.Fprintf(&b, "\tskills, err := s.ListSkills(%s)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, skill := range skills {\n\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s\\t%%s\\n\", skill.Name, skill.Path)\n\t}\n\treturn nil\n}\n\n", callArgs)
 	case "ListTargets":
-		fmt.Fprintf(&b, "\ttargets, err := s.ListTargets(%s)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, target := range targets {\n\t\tstatus := \"disabled\"\n\t\tif target.Enabled {\n\t\t\tstatus = \"enabled\"\n\t\t}\n\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s\\t%%s\\t%%s\\t%%s\\n\", target.Name, status, target.OutputDir, strings.Join(target.EmitPaths, \",\"))\n\t}\n\treturn nil\n}\n\n", callArgs)
+		fmt.Fprintf(&b, `	targets, err := s.ListTargets(%s)
+	if err != nil {
+		return err
+	}
+	for _, target := range targets {
+		status := "disabled"
+		if target.Enabled {
+			status = "enabled"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "%%s	%%s	%%s	%%s	%%s\n", target.Name, status, target.OutputDir, strings.Join(target.EmitPaths, ","), formatTargetOutputs(target.Outputs))
+	}
+	return nil
+}
+
+func formatTargetOutputs(outputs []domain.TargetOutput) string {
+	formatted := make([]string, 0, len(outputs))
+	for _, output := range outputs {
+		formatted = append(formatted, fmt.Sprintf("%%s|%%s|%%s", output.Path, output.Kind, output.Format))
+	}
+	return strings.Join(formatted, ",")
+}
+
+`, callArgs)
 	case "EnableTarget":
 		fmt.Fprintf(&b, "\tif err := s.EnableTarget(%s); err != nil {\n\t\treturn err\n\t}\n", callArgs)
 		fmt.Fprintf(&b, "\tfmt.Fprintf(cmd.OutOrStdout(), \"Enabled target %%s\\n\", name)\n\treturn nil\n}\n\n")
