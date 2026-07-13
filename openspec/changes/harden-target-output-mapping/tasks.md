@@ -44,7 +44,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
   - **Verify:** repeated sync returns identical path ordering.
   - **Depends on:** T1, T3
 
-- [ ] **T6: Update dogfood docs/context to remove stale limitation** *(~45m)* — Linear: COD-331
+- [x] **T6: Update dogfood docs/context to remove stale limitation** *(~45m)* — Linear: COD-331
   - **Files:** `AGENTS.md`, `CLAUDE.md`, `.creed/config/*`, `README.md` as appropriate
   - **Do:** remove the old "target-specific file semantics are crude" limitation and document the descriptor/rendering model accurately.
   - **Verify:** generated/dogfood context no longer contradicts implemented behavior.
