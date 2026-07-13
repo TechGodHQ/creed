@@ -52,7 +52,7 @@ Renderer contract first, then structured listing surfaces and regressions in par
 
 ### 4) Delivery
 
-- [ ] **T7: Full verification and OpenSpec finalization** *(~45m)* — Linear: COD-332
+- [x] **T7: Full verification and OpenSpec finalization** *(~45m)* — Linear: COD-332
   - **Do:** run:
     - `go generate ./...`
     - `git diff --exit-code` after generation, accounting for intended docs/spec edits
