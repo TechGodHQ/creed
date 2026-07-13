@@ -80,14 +80,24 @@ Partial target failures are isolated: one failed target does not prevent the nex
 target from running. A top-level error is reserved for failures that prevent the
 sync from being planned at all, such as an unreadable manifest.
 
-## Target path semantics
+## Target output semantics
 
-Targets define `EmitPaths` in `internal/domain/targets.go`.
+Targets define structured output descriptors in `internal/domain/targets.go`. The
+legacy `EmitPaths` view is still available for compatibility, but descriptors are
+the canonical model for rendering and inspection.
 
-- Directory paths ending in `/` receive one file per skill.
-- The first file path receives concatenated config file content.
-- Extra file paths are intentionally ignored until Creed grows per-path content
-  semantics. This keeps the current sync model file-level and predictable.
+Each descriptor declares a path, output kind, and format:
+
+- Context outputs receive concatenated manifest config content, such as
+  `AGENTS.md`, `CLAUDE.md`, `.windsurfrules`, and Aider's `CONVENTIONS.md`.
+- Skill directory outputs receive one file per manifest skill, such as
+  `.claude/skills/` and `.cursor/rules/`.
+- Target-specific config outputs are rendered by explicit target renderers, such
+  as Aider's `.aider.conf.yml` pointing at `CONVENTIONS.md`.
+
+The service list-target DTO exposes descriptors alongside legacy emit paths so
+CLI, MCP, and future surfaces can inspect target behavior without re-deriving it
+from filenames.
 
 ## Guardrails
 

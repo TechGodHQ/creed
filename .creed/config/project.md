@@ -38,5 +38,6 @@ Creed currently supports:
 - Enabled target syncing to local filesystem output dirs.
 - Targets: `claude`, `cursor`, `codex`, `agents`, `windsurf`, `aider`.
 - Dry-run, force, idempotent writes, and structured sync results.
+- Descriptor-aware target output rendering for context files, skill directories, and target-specific config files.
 
-Known limitation: target-specific file semantics are still crude. The sync engine aggregates config files into the first file output and emits skills into directory outputs. Targets with multiple non-directory files, such as Aider, need richer mapping semantics.
+Target output descriptors are the source of truth for emitted files. Each descriptor declares a path, kind, and format so the sync engine can render the right content for each target instead of guessing from bare paths. Context outputs such as `AGENTS.md`, `CLAUDE.md`, `.windsurfrules`, and Aider's `CONVENTIONS.md` receive aggregated project config. Skill directory outputs such as `.claude/skills/` and `.cursor/rules/` receive one file per skill. Target-specific config outputs use explicit renderers; Aider emits `.aider.conf.yml` pointing at `CONVENTIONS.md` plus a separate `CONVENTIONS.md` context file.

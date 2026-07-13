@@ -131,13 +131,19 @@ source:
 
 ## Current sync behavior
 
-- Skill files are emitted to target directory paths, such as `.claude/skills/`
+Creed uses target output descriptors to decide what each target receives. Each
+known target declares output paths with semantic kinds and formats; the sync
+engine renders those descriptors instead of inferring behavior from filenames.
+
+- Context outputs receive concatenated config content, such as `CLAUDE.md`,
+  `AGENTS.md`, `.windsurfrules`, or Aider's `CONVENTIONS.md`.
+- Skill directory outputs receive one file per skill, such as `.claude/skills/`
   and `.cursor/rules/`.
-- Config files are concatenated and emitted to context outputs, such as
-  `CLAUDE.md`, `AGENTS.md`, `.windsurfrules`, or `CONVENTIONS.md`.
-- Aider receives two files when enabled: `.aider.conf.yml` points Aider at
-  `CONVENTIONS.md`, and `CONVENTIONS.md` receives the aggregated project
-  context.
+- Target-specific config outputs are rendered by explicit per-target renderers.
+  Aider receives `.aider.conf.yml` pointing Aider at `CONVENTIONS.md`, plus the
+  separate `CONVENTIONS.md` context file.
+- `list-targets` exposes both legacy emit paths and structured descriptors so
+  agents can inspect target behavior programmatically.
 - The second identical run is idempotent and reports skipped files.
 - `--dry-run` reports which candidate files would be written and which are
   already identical, without writing. Dry-run summaries include a separate
