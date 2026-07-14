@@ -51,7 +51,7 @@ var Operations = []OperationDescriptor{
 		CLIName:       "sync",
 		MCPName:       "sync",
 		HTTPRoute:     "/v1/operations/sync",
-		Inputs:        []InputDescriptor{{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Emit for a specific target (claude, cursor, codex, windsurf, aider)."}, {Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Show files that would be emitted without writing."}, {Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Rewrite files even when content is unchanged."}},
+		Inputs:        []InputDescriptor{{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Emit for a specific target (claude, cursor, codex, gemini, windsurf, aider)."}, {Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Show files that would be emitted without writing."}, {Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Rewrite files even when content is unchanged."}},
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "*usecase.SyncResult"}, {Name: "result2", Type: "error"}},
 	},
 	{

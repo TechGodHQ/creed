@@ -1265,7 +1265,7 @@ func operationInputs(method serviceMethod) []methodParam {
 		return []methodParam{{Name: "projectName", ExternalName: "project_name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Project name for the generated scaffold."}}
 	case "Sync":
 		return []methodParam{
-			{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", CLIKind: "flag", Help: "Emit for a specific target (claude, cursor, codex, windsurf, aider)."},
+			{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", CLIKind: "flag", Help: "Emit for a specific target (claude, cursor, codex, gemini, windsurf, aider)."},
 			{Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Show files that would be emitted without writing."},
 			{Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Rewrite files even when content is unchanged."},
 		}

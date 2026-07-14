@@ -1,6 +1,6 @@
 # Creed Project Context
 
-Creed is a Go CLI that syncs AI agent context files across coding tools. The canonical source lives in `.creed/`; running `creed sync` emits tool-specific files such as `AGENTS.md`, `CLAUDE.md`, and `.cursor/rules/*`.
+Creed is a Go CLI that syncs AI agent context files across coding tools. The canonical source lives in `.creed/`; running `creed sync` emits tool-specific files such as `AGENTS.md`, `CLAUDE.md`, `.cursor/rules/*`, and `GEMINI.md`.
 
 ## Purpose
 
@@ -38,12 +38,12 @@ Creed currently supports:
 - Local source reads from `.creed/`.
 - Git remote source reads via go-git clone/cache.
 - Enabled target syncing to local filesystem output dirs.
-- Targets: `claude`, `cursor`, `codex`, `agents`, `windsurf`, `aider`.
+- Targets: `claude`, `cursor`, `codex`, `gemini`, `agents`, `windsurf`, `aider`.
 - Dry-run, force, idempotent writes, and structured sync results.
 - Descriptor-aware target output rendering for context files, skill directories, and target-specific config files.
 - Generated CLI/MCP/HTTP operation surfaces sourced from `internal/service.Service` via shared operation descriptors.
 
-Target output descriptors are the source of truth for emitted files. Each descriptor declares a path, kind, and format so the sync engine can render the right content for each target instead of guessing from bare paths. Context outputs such as `AGENTS.md`, `CLAUDE.md`, `.windsurfrules`, and Aider's `CONVENTIONS.md` receive aggregated project config. Skill directory outputs such as `.claude/skills/` and `.cursor/rules/` receive one file per skill. Target-specific config outputs use explicit renderers; Aider emits `.aider.conf.yml` pointing at `CONVENTIONS.md` plus a separate `CONVENTIONS.md` context file.
+Target output descriptors are the source of truth for emitted files. Each descriptor declares a path, kind, and format so the sync engine can render the right content for each target instead of guessing from bare paths. Context outputs such as `AGENTS.md`, `CLAUDE.md`, `GEMINI.md`, `.windsurfrules`, and Aider's `CONVENTIONS.md` receive aggregated project config. Skill directory outputs such as `.claude/skills/`, `.cursor/rules/`, and `.gemini/` receive one file per skill. Target-specific config outputs use explicit renderers; Aider emits `.aider.conf.yml` pointing at `CONVENTIONS.md` plus a separate `CONVENTIONS.md` context file.
 
 Generated interaction surfaces follow this flow: `internal/service.Service` → `go generate ./...` → operation descriptors → generated CLI commands, MCP tools, and HTTP operation routes. To add a generated operation, add a documented service method using supported input shapes (`context.Context`, no input, primitive params, or JSON-tagged DTO-like `Options`/`Request` structs), implement it on the service and fakes, run `go generate ./...`, then run `scripts/check-generated.sh` to prove generated files are current. Do not hand-wire per-operation behavior separately in CLI/MCP/HTTP; unsupported shapes should fail generation explicitly.
 
