@@ -11,18 +11,23 @@ go vet ./...
 gofmt -l .
 ```
 
-If code generation is touched, also run:
+If code generation is touched, run generation/tests during development:
 
 ```bash
 go generate ./...
 go test -race -count=1 ./...
 ```
 
+Before handoff, run `scripts/check-generated.sh` from a clean worktree (after
+staging/committing or stashing unrelated edits) to prove committed generated files
+are idempotent.
+
 ## Style
 
 - Keep package boundaries clean: domain types must not import adapters or use cases.
 - Ports live in `internal/ports`; adapters implement ports without leaking filesystem/git details into use cases.
 - Prefer small interfaces and explicit DTOs over maply-typed blobs.
+- Generated CLI/MCP/HTTP operations are sourced from `internal/service.Service`; add operations there first, keep inputs generator-supported, and regenerate instead of hand-wiring per-surface switches.
 - Public exported Go identifiers need doc comments.
 - Tests should cover real behavior, not just compile-time existence.
 - Preserve deterministic output ordering for generated/synced files.

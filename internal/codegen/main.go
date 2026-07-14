@@ -1,8 +1,9 @@
-// Package codegen implements the code generation tool that produces thin
-// wrappers (CLI commands, MCP tools) from the Service interface.
+// Package main implements the Creed code generator for interaction surface
+// wrappers (CLI commands, MCP tools, and HTTP operation routes) from the
+// Service interface.
 //
 // This entrypoint reads the canonical Service interface and emits generated
-// surface scaffolding so CLI, MCP, and future wrappers do not drift.
+// surface scaffolding so CLI, MCP, and HTTP wrappers do not drift.
 package main
 
 import (
@@ -20,7 +21,7 @@ import (
 	"unicode"
 )
 
-const helpText = `creed-codegen generates CLI and MCP surface code from the Service interface.
+const helpText = `creed-codegen generates CLI, MCP, and HTTP surface code from the Service interface.
 
 Usage:
   creed-codegen [flags]
@@ -36,7 +37,7 @@ Flags:
 
 The generator reads the Service interface via Go AST, extracts method names,
 parameter names, and doc comments, then produces thin wrappers that eliminate
-drift between CLI, MCP, and future HTTP surfaces.
+drift between CLI, MCP, and HTTP surfaces.
 `
 
 type serviceMethod struct {

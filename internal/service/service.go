@@ -1,7 +1,7 @@
 // Package service defines Creed's canonical application API.
 //
-// The Service interface is the single contract that interaction surfaces
-// (CLI, MCP, and future HTTP) wrap. Keeping all user-visible operations here
+// The Service interface is the single contract that generated interaction
+// surfaces (CLI, MCP, and HTTP) wrap. Keeping all user-visible operations here
 // prevents surface drift as capabilities grow.
 package service
 
@@ -12,8 +12,8 @@ import (
 	"github.com/techgodhq/creed/internal/usecase"
 )
 
-// Service is the canonical Creed API surface shared by CLI, MCP, and future
-// HTTP wrappers.
+// Service is the canonical Creed API surface shared by CLI, MCP, and HTTP
+// wrappers.
 type Service interface {
 	// Init bootstraps a Creed project at the service root.
 	Init(ctx context.Context, projectName string) error

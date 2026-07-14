@@ -7,17 +7,19 @@ hexagonal: the sync policy is isolated from filesystem and git details.
 ## Layers
 
 ```text
-cmd/ and internal/mcp/       interaction surfaces
+cmd/, internal/mcp/, internal/httpapi       generated interaction surfaces
           |
-internal/service             canonical application API
+generated operation descriptors             shared surface contract
           |
-internal/usecase             sync orchestration
+internal/service                            canonical application API
           |
-internal/ports               source/emitter interfaces
+internal/usecase                            sync orchestration
           |
-internal/domain              manifest, targets, result vocabulary
+internal/ports                              source/emitter interfaces
           |
-internal/adapters            local filesystem and git implementations
+internal/domain                             manifest, targets, result vocabulary
+          |
+internal/adapters                           local filesystem and git implementations
 ```
 
 ## Canonical API
@@ -31,8 +33,61 @@ internal/adapters            local filesystem and git implementations
 - `EnableTarget` / `DisableTarget` mutate manifest target state.
 - `Pull` / `Push` support git-backed source sharing.
 
-The CLI currently delegates directly to this service. MCP and future HTTP layers
-should remain thin wrappers around the same interface so behavior does not drift.
+CLI, MCP, and HTTP all wrap this service through generated operation descriptors.
+The generated code owns per-surface names, request decoding, schema/catalog data,
+handler delegation, and structured success/error envelopes so behavior does not
+drift between surfaces.
+
+## Generated interaction surfaces
+
+`go generate ./...` runs `internal/codegen`, which parses
+`internal/service.Service` and writes generated files under:
+
+- `cmd/gen/` for Cobra command constructors and command metadata.
+- `internal/mcp/gen/` for MCP tool definitions, schemas, request decoding, and
+  service delegation.
+- `internal/httpapi/gen/` for the HTTP operation catalog and JSON call routing.
+- shared generated operation descriptor data consumed by those surfaces.
+
+The source-of-truth flow is:
+
+```text
+internal/service.Service
+        ↓ parser + metadata resolver
+operation descriptors
+        ↓
+CLI renderer     MCP renderer     HTTP renderer
+        ↓              ↓              ↓
+cmd/gen       internal/mcp/gen   internal/httpapi/gen
+```
+
+Generated surfaces preserve the existing public operation names while removing
+handwritten per-operation switch logic from each surface. Runtime packages may
+still provide small adapters and transport setup, but operation-specific decoding
+and service calls belong in generated code.
+
+The HTTP surface is intentionally operation-oriented rather than hand-designed
+REST for this phase:
+
+- `GET /v1/operations` returns the generated operation catalog.
+- `POST /v1/operations/{operation}` calls one operation with a JSON input body.
+- Responses use the same structured success/error envelope model as MCP.
+
+### Adding a generated operation
+
+1. Add a documented method to `internal/service.Service`.
+2. Keep inputs generator-supported: `context.Context`, no input, primitive params,
+   or a DTO-like `Options`/`Request` struct whose exported fields have JSON tags.
+3. Implement the method on the concrete service and on fake services used by tests.
+4. Run `go generate ./...` to refresh generated CLI, MCP, HTTP, and descriptor files.
+5. Add or update tests that prove the service behavior and any surface-specific
+   contract that matters for the operation.
+6. Run `scripts/check-generated.sh` before handoff; it fails if generation is not
+   idempotent or produces uncommitted generated output.
+
+Unsupported method shapes fail generation explicitly. Do not add silent skips or
+surface-local hand wiring for new operations; that recreates the drift the
+generator is meant to eliminate.
 
 ## Source readers
 
@@ -96,8 +151,8 @@ Each descriptor declares a path, output kind, and format:
   as Aider's `.aider.conf.yml` pointing at `CONVENTIONS.md`.
 
 The service list-target DTO exposes descriptors alongside legacy emit paths so
-CLI, MCP, and future surfaces can inspect target behavior without re-deriving it
-from filenames.
+CLI, MCP, HTTP, and any future generated surfaces can inspect target behavior
+without re-deriving it from filenames.
 
 ## Guardrails
 
