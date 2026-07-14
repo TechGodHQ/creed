@@ -75,7 +75,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
   - **Verify:** docs no longer describe HTTP as merely future once implemented.
   - **Depends on:** T5, T7
 
-- [ ] **T10: Full verification and OpenSpec finalization** *(~45m)* — Linear: COD-342
+- [x] **T10: Full verification and OpenSpec finalization** *(~45m)* — Linear: COD-342
   - **Do:** run:
     - `go generate ./...`
     - `git diff --exit-code`
