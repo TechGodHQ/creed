@@ -61,7 +61,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
   - **Verify:** fixture fails if any surface requires manual switch/registration work.
   - **Depends on:** T3, T4, T5
 
-- [ ] **T8: Add generation idempotency guard** *(~1h)* — Linear: COD-340
+- [x] **T8: Add generation idempotency guard** *(~1h)* — Linear: COD-340
   - **Files:** codegen tests or CI script/workflow as appropriate
   - **Do:** ensure `go generate ./...` is idempotent and generated files are committed/current.
   - **Verify:** `go generate ./... && git diff --exit-code` passes from a clean tree.

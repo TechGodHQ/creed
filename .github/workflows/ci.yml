@@ -25,10 +25,7 @@ jobs:
         run: go mod download
 
       - name: Verify generated code is current
-        run: |
-          go generate ./...
-          git diff --exit-code
-          test -z "$(git status --porcelain)"
+        run: scripts/check-generated.sh
 
       - name: Vet
         run: go vet ./...
