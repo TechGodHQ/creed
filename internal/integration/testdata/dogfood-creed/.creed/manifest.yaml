@@ -12,6 +12,9 @@ targets:
   - name: cursor
     enabled: true
     output_dir: .
+  - name: gemini
+    enabled: true
+    output_dir: .
   - name: aider
     enabled: true
     output_dir: .

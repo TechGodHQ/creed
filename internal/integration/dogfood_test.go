@@ -33,6 +33,9 @@ func TestDogfoodFixtureSyncsAllAgentTargetsAndIsIdempotent(t *testing.T) {
 	assertFileContains(t, filepath.Join(root, "AGENTS.md"), "# Dogfood Project")
 	assertFileContains(t, filepath.Join(root, ".cursor", "rules", "review.md"), "# Review")
 	assertFileContains(t, filepath.Join(root, ".cursor", "rules", "testing.md"), "# Testing")
+	assertFileContains(t, filepath.Join(root, "GEMINI.md"), "# Dogfood Project")
+	assertFileContains(t, filepath.Join(root, ".gemini", "review.md"), "# Review")
+	assertFileContains(t, filepath.Join(root, ".gemini", "testing.md"), "# Testing")
 	assertFileContains(t, filepath.Join(root, ".aider.conf.yml"), "CONVENTIONS.md")
 	assertFileContains(t, filepath.Join(root, "CONVENTIONS.md"), "# Dogfood Project")
 

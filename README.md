@@ -14,6 +14,7 @@ Every AI coding tool has its own conventions:
 | Claude Code | `CLAUDE.md`, `.claude/skills/` |
 | Cursor | `.cursor/rules/` |
 | Codex | `AGENTS.md` |
+| Gemini CLI | `GEMINI.md`, `.gemini/` |
 | Generic agents | `AGENTS.md` |
 | Windsurf | `.windsurfrules` |
 | Aider | `.aider.conf.yml`, `CONVENTIONS.md` |
@@ -69,8 +70,8 @@ By default, `creed init` creates:
 - `.creed/skills/review.md`
 
 The generated manifest enables `claude`, `codex`, and `cursor` with
-`output_dir: .`. Less universal targets (`agents`, `aider`, and `windsurf`) are
-listed but disabled until you opt in.
+`output_dir: .`. Less universal targets (`agents`, `aider`, `gemini`, and
+`windsurf`) are listed but disabled until you opt in.
 
 ## Manifest format
 
@@ -97,6 +98,9 @@ targets:
     output_dir: .
   - name: cursor
     enabled: true
+    output_dir: .
+  - name: gemini
+    enabled: false
     output_dir: .
   - name: windsurf
     enabled: false
@@ -136,9 +140,9 @@ known target declares output paths with semantic kinds and formats; the sync
 engine renders those descriptors instead of inferring behavior from filenames.
 
 - Context outputs receive concatenated config content, such as `CLAUDE.md`,
-  `AGENTS.md`, `.windsurfrules`, or Aider's `CONVENTIONS.md`.
+  `AGENTS.md`, `GEMINI.md`, `.windsurfrules`, or Aider's `CONVENTIONS.md`.
 - Skill directory outputs receive one file per skill, such as `.claude/skills/`
-  and `.cursor/rules/`.
+  `.cursor/rules/`, and `.gemini/`.
 - Target-specific config outputs are rendered by explicit per-target renderers.
   Aider receives `.aider.conf.yml` pointing Aider at `CONVENTIONS.md`, plus the
   separate `CONVENTIONS.md` context file.
