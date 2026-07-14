@@ -69,7 +69,7 @@ Descriptor model first, then migrate MCP/CLI onto it, then add HTTP, then prove 
 
 ### 6) Docs and finalization
 
-- [ ] **T9: Update architecture docs for generated surfaces** *(~1h)* — Linear: COD-341
+- [x] **T9: Update architecture docs for generated surfaces** *(~1h)* — Linear: COD-341
   - **Files:** `README.md`, `AGENTS.md`, `.creed/config/*`, OpenSpec specs as appropriate
   - **Do:** explain Service → operation descriptor → CLI/MCP/HTTP generation flow and current extension workflow.
   - **Verify:** docs no longer describe HTTP as merely future once implemented.

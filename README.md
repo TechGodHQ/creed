@@ -166,8 +166,42 @@ Creed uses a ports-and-adapters layout:
 - `internal/adapters/localfs`: reads `.creed/` and writes target files locally.
 - `internal/adapters/gitremote`: reads `.creed/` from a git remote clone/cache.
 - `internal/usecase`: the sync engine and result model.
-- `internal/service`: the canonical API shared by CLI, MCP, and future surfaces.
-- `cmd`: Cobra CLI commands that delegate to `internal/service`.
+- `internal/service`: the canonical API shared by generated CLI, MCP, and HTTP surfaces.
+- `internal/codegen`: parses the service interface and emits operation descriptors plus
+  surface glue.
+- `cmd` and `cmd/gen`: Cobra CLI commands generated from operation descriptors.
+- `internal/mcp` and `internal/mcp/gen`: MCP tool metadata, schemas, and handlers
+  generated from the same descriptors.
+- `internal/httpapi` and `internal/httpapi/gen`: JSON operation catalog and call routes
+  generated from the same descriptors.
+
+User-facing surfaces follow one source-of-truth flow:
+
+```text
+internal/service.Service
+        ↓ go generate ./...
+generated operation descriptors
+        ↓
+CLI commands    MCP tools    HTTP operation routes
+```
+
+To add a generated operation:
+
+1. Add the method to `internal/service.Service` with a doc comment.
+2. Use supported inputs only: `context.Context`, no input, primitive params, or a
+   DTO-like `Options`/`Request` struct with JSON tags.
+3. Implement the method on the service implementation and fake services used by tests.
+4. Run `go generate ./...`; this refreshes `cmd/gen/`, `internal/mcp/gen/`, and
+   `internal/httpapi/gen/` from the operation descriptors.
+5. Add behavior tests at the service boundary or generated surface boundary as needed.
+6. Run `scripts/check-generated.sh` (or `go generate ./... && git diff --exit-code`)
+   before opening a PR.
+
+The generated HTTP surface is available as an `http.Handler` with:
+
+- `GET /v1/operations` — list the generated operation catalog.
+- `POST /v1/operations/{operation}` — call an operation with JSON input and receive a
+  structured success/error envelope.
 
 See [`docs/architecture.md`](docs/architecture.md) for more detail.
 
