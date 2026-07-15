@@ -28,6 +28,10 @@ var DefaultTargets = map[string]*Target{
 		{Path: "GEMINI.md", Kind: OutputKindContext, Format: "markdown"},
 		{Path: ".gemini/", Kind: OutputKindSkillDir, Format: "markdown"},
 	}),
+	"opencode": newTarget("opencode", "OpenCode", []TargetOutput{
+		{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
+		{Path: ".opencode/agents/", Kind: OutputKindSkillDir, Format: "markdown"},
+	}),
 	"agents": newTarget("agents", "AGENTS.md (generic)", []TargetOutput{
 		{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
 	}),
