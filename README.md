@@ -220,6 +220,36 @@ The generated HTTP surface is available as an `http.Handler` with:
 - `POST /v1/operations/{operation}` — call an operation with JSON input and receive a
   structured success/error envelope.
 
+The generated MCP surface can run as a stdio server:
+
+```bash
+creed mcp serve
+```
+
+MCP clients can either launch Creed from the project whose `.creed/` directory
+should be read or pass an explicit project root:
+
+```bash
+creed mcp serve --root /path/to/project
+```
+
+Example Claude Desktop configuration:
+
+```json
+{
+  "mcpServers": {
+    "creed": {
+      "command": "creed",
+      "args": ["mcp", "serve", "--root", "/path/to/project"]
+    }
+  }
+}
+```
+
+Cursor uses the same command/args shape in its MCP server configuration. The
+server exposes the generated Creed tools, including `list_targets` for inspecting
+available outputs and `sync` for emitting enabled target files.
+
 See [`docs/architecture.md`](docs/architecture.md) for more detail.
 
 ## Verification
