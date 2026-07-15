@@ -61,6 +61,12 @@ func TestTargetOutputDescriptors(t *testing.T) {
 			},
 		},
 		{
+			name: "copilot",
+			want: []TargetOutput{
+				{Path: ".github/copilot-instructions.md", Kind: OutputKindContext, Format: "markdown"},
+			},
+		},
+		{
 			name: "aider",
 			want: []TargetOutput{
 				{Path: ".aider.conf.yml", Kind: OutputKindConfig, Format: "yaml"},
@@ -156,7 +162,7 @@ func TestLookupTargetUnknownReturnsError(t *testing.T) {
 
 func TestAllTargetNamesIncludesExpected(t *testing.T) {
 	names := AllTargetNames()
-	expected := []string{"agents", "aider", "claude", "codex", "cursor", "gemini", "windsurf"}
+	expected := []string{"agents", "aider", "claude", "codex", "copilot", "cursor", "gemini", "windsurf"}
 	if len(names) != len(expected) {
 		t.Fatalf("expected %d targets, got %d: %v", len(expected), len(names), names)
 	}
