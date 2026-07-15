@@ -21,6 +21,9 @@ var DefaultTargets = map[string]*Target{
 	"codex": newTarget("codex", "OpenAI Codex", []TargetOutput{
 		{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
 	}),
+	"copilot": newTarget("copilot", "GitHub Copilot", []TargetOutput{
+		{Path: ".github/copilot-instructions.md", Kind: OutputKindContext, Format: "markdown"},
+	}),
 	"gemini": newTarget("gemini", "Gemini CLI", []TargetOutput{
 		{Path: "GEMINI.md", Kind: OutputKindContext, Format: "markdown"},
 		{Path: ".gemini/", Kind: OutputKindSkillDir, Format: "markdown"},

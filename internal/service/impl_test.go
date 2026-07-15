@@ -50,7 +50,7 @@ func TestInitCreatesStarterScaffoldAndPracticalDefaultTargets(t *testing.T) {
 			t.Fatalf("target %s should default to enabled; enabled=%#v", name, enabled)
 		}
 	}
-	for _, name := range []string{"agents", "aider", "gemini", "windsurf"} {
+	for _, name := range []string{"agents", "aider", "copilot", "gemini", "windsurf"} {
 		if enabled[name] {
 			t.Fatalf("target %s should default to disabled; enabled=%#v", name, enabled)
 		}
@@ -151,6 +151,12 @@ func TestListTargetsExposesStructuredOutputDescriptors(t *testing.T) {
 			name: "cursor",
 			want: []domain.TargetOutput{
 				{Path: ".cursor/rules/", Kind: domain.OutputKindSkillDir, Format: "markdown"},
+			},
+		},
+		{
+			name: "copilot",
+			want: []domain.TargetOutput{
+				{Path: ".github/copilot-instructions.md", Kind: domain.OutputKindContext, Format: "markdown"},
 			},
 		},
 		{

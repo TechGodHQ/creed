@@ -62,6 +62,7 @@ func TestGeneratedListTargetsCommandDelegatesToService(t *testing.T) {
 	}
 	for _, want := range []string{
 		"claude	enabled	.	CLAUDE.md,.claude/skills/	CLAUDE.md|context|markdown,.claude/skills/|skill_dir|markdown",
+		"copilot	disabled		.github/copilot-instructions.md	.github/copilot-instructions.md|context|markdown",
 		"cursor	disabled		.cursor/rules/	.cursor/rules/|skill_dir|markdown",
 		"gemini	disabled		GEMINI.md,.gemini/	GEMINI.md|context|markdown,.gemini/|skill_dir|markdown",
 		"aider	disabled		.aider.conf.yml,CONVENTIONS.md	.aider.conf.yml|config|yaml,CONVENTIONS.md|context|markdown",
