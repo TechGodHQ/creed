@@ -133,6 +133,19 @@ source:
   remote: https://github.com/example/context.git
 ```
 
+Git remotes support public HTTPS URLs, private HTTPS URLs with the configured
+service token, and SSH URLs through either `SSH_AUTH_SOCK` or an explicit
+`CREED_GIT_SSH_KEY` path. If the key is passphrase-protected, set
+`CREED_GIT_SSH_PASSPHRASE`. Creed passes credentials through go-git auth methods
+rather than embedding tokens in clone URLs, and error messages sanitize remote
+URLs before reporting auth/network failures.
+
+Services can provide a cache directory with `WithCacheDir`; Creed stores shallow
+clones under `clones/` and commit metadata under `refs/`. A cached clone is reused
+only when the remote HEAD still matches the cached SHA; stale clones are removed
+and refreshed automatically. Call `InvalidateCache` on the git-remote source when
+a user explicitly requests a cache refresh.
+
 ## Current sync behavior
 
 Creed uses target output descriptors to decide what each target receives. Each

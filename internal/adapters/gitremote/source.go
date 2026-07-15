@@ -9,15 +9,19 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	"github.com/go-git/go-git/v5"
 	"github.com/go-git/go-git/v5/config"
 	"github.com/go-git/go-git/v5/plumbing"
+	"github.com/go-git/go-git/v5/plumbing/transport"
 	"github.com/go-git/go-git/v5/plumbing/transport/http"
+	"github.com/go-git/go-git/v5/plumbing/transport/ssh"
 	"github.com/go-git/go-git/v5/storage/memory"
 
 	"github.com/techgodhq/creed/internal/adapters/localfs"
@@ -33,6 +37,8 @@ type cacheEntry struct {
 	SHA string `json:"sha"`
 	Dir string `json:"dir"`
 }
+
+var errCacheMiss = errors.New("git remote cache miss")
 
 // Source reads creed data from a remote git repository.
 // It implements ports.SourceReader by cloning the repository to a directory
@@ -112,10 +118,34 @@ func (s *Source) writeCache() error {
 	return nil
 }
 
+// InvalidateCache removes this remote's cached clone and metadata. It is safe
+// to call when caching is disabled or before the remote has ever been read.
+func (s *Source) InvalidateCache() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.cacheDir == "" {
+		return nil
+	}
+	if err := os.RemoveAll(s.clonePath()); err != nil {
+		return fmt.Errorf("remove cached clone: %w", err)
+	}
+	if err := os.Remove(s.cacheFilePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return fmt.Errorf("remove cache metadata: %w", err)
+	}
+	s.clonedDir = ""
+	s.cachedSHA = ""
+	s.localSource = nil
+	s.cloned = false
+	return nil
+}
+
 // readCache reads the cache entry for this remote, if it exists.
 func (s *Source) readCache() (*cacheEntry, error) {
 	data, err := os.ReadFile(s.cacheFilePath())
 	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: cache metadata missing", errCacheMiss)
+		}
 		return nil, err
 	}
 	var entry cacheEntry
@@ -143,17 +173,16 @@ func (s *Source) remoteHeadSHA(ctx context.Context) (string, error) {
 		return "", fmt.Errorf("create remote: %w", err)
 	}
 
-	listOpts := &git.ListOptions{}
-	if s.token != "" {
-		listOpts.Auth = &http.BasicAuth{
-			Username: "x-access-token",
-			Password: s.token,
-		}
+	auth, err := s.authMethod()
+	if err != nil {
+		return "", err
 	}
+
+	listOpts := &git.ListOptions{Auth: auth}
 
 	refs, err := remote.ListContext(ctx, listOpts)
 	if err != nil {
-		return "", fmt.Errorf("list remote refs: %w", err)
+		return "", classifyGitError("list remote refs", s.remoteURL, err)
 	}
 
 	// Prefer the HEAD reference. In ls-remote output, HEAD may be a
@@ -200,6 +229,8 @@ func (s *Source) ensureCloned(ctx context.Context) error {
 	if s.cacheDir != "" {
 		if err := s.tryCache(ctx); err == nil {
 			return nil // Cache hit — clone skipped.
+		} else if !errors.Is(err, errCacheMiss) {
+			return err
 		}
 	}
 
@@ -230,7 +261,10 @@ func (s *Source) tryCache(ctx context.Context) error {
 
 	// Check if the cached clone directory still exists.
 	if _, err := os.Stat(entry.Dir); err != nil {
-		return fmt.Errorf("cached clone dir missing: %w", err)
+		if errors.Is(err, os.ErrNotExist) {
+			return fmt.Errorf("%w: cached clone dir missing", errCacheMiss)
+		}
+		return fmt.Errorf("stat cached clone dir: %w", err)
 	}
 
 	// Query remote HEAD to see if it has changed.
@@ -240,7 +274,7 @@ func (s *Source) tryCache(ctx context.Context) error {
 	}
 
 	if remoteSHA != entry.SHA {
-		return fmt.Errorf("remote HEAD changed (was %s, now %s)", shortSHA(entry.SHA), shortSHA(remoteSHA))
+		return fmt.Errorf("%w: remote HEAD changed (was %s, now %s)", errCacheMiss, shortSHA(entry.SHA), shortSHA(remoteSHA))
 	}
 
 	// Cache hit — reuse the existing clone directory.
@@ -253,6 +287,11 @@ func (s *Source) tryCache(ctx context.Context) error {
 
 // clone performs the actual git clone to a directory.
 func (s *Source) clone(ctx context.Context) error {
+	auth, err := s.authMethod()
+	if err != nil {
+		return err
+	}
+
 	var cloneDir string
 
 	if s.cacheDir != "" {
@@ -276,16 +315,14 @@ func (s *Source) clone(ctx context.Context) error {
 		URL:   s.remoteURL,
 		Tags:  git.NoTags,
 		Depth: 1,
-	}
-	if s.token != "" {
-		cloneOpts.URL = injectToken(s.remoteURL, s.token)
+		Auth:  auth,
 	}
 
 	repo, err := git.PlainCloneContext(ctx, cloneDir, false, cloneOpts)
 	if err != nil {
 		// Clean up the failed clone directory.
 		os.RemoveAll(cloneDir)
-		return fmt.Errorf("clone repository: %w", err)
+		return classifyGitError("clone repository", s.remoteURL, err)
 	}
 
 	head, err := repo.Head()
@@ -386,6 +423,76 @@ func shortSHA(s string) string {
 		return s[:8]
 	}
 	return s
+}
+
+// authMethod returns the go-git auth method for the configured remote. HTTPS
+// remotes use the explicit token passed to NewSource/NewSourceWithCache. SSH
+// remotes prefer CREED_GIT_SSH_KEY when set, then fall back to SSH_AUTH_SOCK.
+func (s *Source) authMethod() (transport.AuthMethod, error) {
+	if s.token != "" && isHTTPSRemote(s.remoteURL) {
+		return &http.BasicAuth{Username: "x-access-token", Password: s.token}, nil
+	}
+	if !isSSHRemote(s.remoteURL) {
+		return nil, nil
+	}
+	if keyPath := os.Getenv("CREED_GIT_SSH_KEY"); keyPath != "" {
+		method, err := ssh.NewPublicKeysFromFile("git", keyPath, os.Getenv("CREED_GIT_SSH_PASSPHRASE"))
+		if err != nil {
+			return nil, fmt.Errorf("load SSH key %q for git remote auth: %w", keyPath, err)
+		}
+		return method, nil
+	}
+	method, err := ssh.NewSSHAgentAuth("git")
+	if err != nil {
+		return nil, fmt.Errorf("SSH remote %q requires SSH auth: set SSH_AUTH_SOCK or CREED_GIT_SSH_KEY: %w", s.remoteURL, err)
+	}
+	return method, nil
+}
+
+func isHTTPSRemote(remoteURL string) bool {
+	return strings.HasPrefix(remoteURL, "https://")
+}
+
+func isSSHRemote(remoteURL string) bool {
+	return strings.HasPrefix(remoteURL, "git@") || strings.HasPrefix(remoteURL, "ssh://")
+}
+
+func classifyGitError(operation, remoteURL string, err error) error {
+	if err == nil {
+		return nil
+	}
+	msg := strings.ToLower(err.Error())
+	detail := sanitizeErrorMessage(err.Error())
+	sanitized := sanitizeRemoteURL(remoteURL)
+	switch {
+	case strings.Contains(msg, "authentication") || strings.Contains(msg, "authorization") || strings.Contains(msg, "permission denied") || strings.Contains(msg, "auth"):
+		return fmt.Errorf("%s %q failed: authentication failed: %s", operation, sanitized, detail)
+	case strings.Contains(msg, "repository not found") || strings.Contains(msg, "not found"):
+		return fmt.Errorf("%s %q failed: repository not found: %s", operation, sanitized, detail)
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return fmt.Errorf("%s %q failed: context canceled or timed out: %s", operation, sanitized, detail)
+	default:
+		return fmt.Errorf("%s %q failed: %s", operation, sanitized, detail)
+	}
+}
+
+func sanitizeErrorMessage(message string) string {
+	fields := strings.Fields(message)
+	for i, field := range fields {
+		fields[i] = sanitizeRemoteURL(field)
+	}
+	return strings.Join(fields, " ")
+}
+
+func sanitizeRemoteURL(remoteURL string) string {
+	if !strings.HasPrefix(remoteURL, "https://") || !strings.Contains(remoteURL, "@") {
+		return remoteURL
+	}
+	parts := strings.SplitN(strings.TrimPrefix(remoteURL, "https://"), "@", 2)
+	if len(parts) != 2 {
+		return remoteURL
+	}
+	return "https://" + parts[1]
 }
 
 // injectToken injects an authentication token into an HTTPS git URL.

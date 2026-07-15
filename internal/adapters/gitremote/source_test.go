@@ -2,10 +2,14 @@ package gitremote
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
+
+	"github.com/go-git/go-git/v5/plumbing/transport/http"
 )
 
 // createBareRepo creates a bare git repo with a .creed/ manifest and skill,
@@ -254,6 +258,50 @@ func TestGitRemoteNoCacheAlwaysClones(t *testing.T) {
 	}
 }
 
+func TestGitRemoteExplicitCacheInvalidation(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+
+	bareURL := createBareRepo(t)
+	cacheDir := t.TempDir()
+
+	src1 := NewSourceWithCache(bareURL, "", cacheDir)
+	if _, err := src1.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("first ReadManifest error: %v", err)
+	}
+	if src1.CloneCount() != 1 {
+		t.Fatalf("expected first source CloneCount 1, got %d", src1.CloneCount())
+	}
+	if err := src1.InvalidateCache(); err != nil {
+		t.Fatalf("InvalidateCache error: %v", err)
+	}
+
+	src2 := NewSourceWithCache(bareURL, "", cacheDir)
+	if _, err := src2.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("second ReadManifest error: %v", err)
+	}
+	if src2.CloneCount() != 1 {
+		t.Fatalf("expected clone after explicit invalidation, got %d", src2.CloneCount())
+	}
+}
+
+func TestGitRemoteRealPublicRemote(t *testing.T) {
+	if os.Getenv("CREED_RUN_REMOTE_INTEGRATION") != "1" {
+		t.Skip("set CREED_RUN_REMOTE_INTEGRATION=1 to clone the public Creed repo")
+	}
+
+	src := NewSource("https://github.com/TechGodHQ/creed.git", "")
+	defer src.Cleanup()
+	manifest, err := src.ReadManifest(context.Background())
+	if err != nil {
+		t.Fatalf("ReadManifest from public remote error: %v", err)
+	}
+	if manifest.Version != 1 {
+		t.Fatalf("manifest version = %d, want 1", manifest.Version)
+	}
+}
+
 // addCommitToBareRepo adds a new commit to the working tree and pushes
 // to the bare repo, changing the remote HEAD SHA.
 func addCommitToBareRepo(t *testing.T, bareURL string) {
@@ -324,5 +372,50 @@ func TestInjectToken(t *testing.T) {
 				t.Errorf("injectToken(%q, %q) = %q, want %q", tt.url, tt.token, got, tt.wantURL)
 			}
 		})
+	}
+}
+
+func TestAuthMethodUsesHTTPTokenWithoutInjectingURL(t *testing.T) {
+	src := NewSource("https://github.com/user/repo.git", "token-123")
+	auth, err := src.authMethod()
+	if err != nil {
+		t.Fatalf("authMethod returned error: %v", err)
+	}
+	basic, ok := auth.(*http.BasicAuth)
+	if !ok {
+		t.Fatalf("authMethod type = %T, want *http.BasicAuth", auth)
+	}
+	if basic.Username != "x-access-token" || basic.Password != "token-123" {
+		t.Fatalf("unexpected basic auth: %#v", basic)
+	}
+}
+
+func TestAuthMethodRejectsSSHWithoutAgentOrKey(t *testing.T) {
+	t.Setenv("SSH_AUTH_SOCK", "")
+	t.Setenv("CREED_GIT_SSH_KEY", "")
+	src := NewSource("git@github.com:user/private.git", "")
+	_, err := src.authMethod()
+	if err == nil {
+		t.Fatal("expected SSH auth setup error, got nil")
+	}
+	if !strings.Contains(err.Error(), "SSH_AUTH_SOCK") || !strings.Contains(err.Error(), "CREED_GIT_SSH_KEY") {
+		t.Fatalf("error %q does not mention SSH auth options", err)
+	}
+}
+
+func TestClassifyGitErrorSanitizesRemoteURL(t *testing.T) {
+	err := classifyGitError(
+		"clone repository",
+		"https://x-access-token:secret-token@github.com/user/repo.git",
+		errors.New("authentication required for https://x-access-token:secret-token@github.com/user/repo.git"),
+	)
+	if err == nil {
+		t.Fatal("expected classified error")
+	}
+	if strings.Contains(err.Error(), "secret-token") {
+		t.Fatalf("classified error leaked token: %v", err)
+	}
+	if !strings.Contains(err.Error(), "authentication failed") {
+		t.Fatalf("classified error did not label auth failure: %v", err)
 	}
 }
