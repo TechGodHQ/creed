@@ -65,6 +65,7 @@ func TestGeneratedListTargetsCommandDelegatesToService(t *testing.T) {
 		"copilot	disabled		.github/copilot-instructions.md	.github/copilot-instructions.md|context|markdown",
 		"cursor	disabled		.cursor/rules/	.cursor/rules/|skill_dir|markdown",
 		"gemini	disabled		GEMINI.md,.gemini/	GEMINI.md|context|markdown,.gemini/|skill_dir|markdown",
+		"opencode	disabled		AGENTS.md,.opencode/agents/	AGENTS.md|context|markdown,.opencode/agents/|skill_dir|markdown",
 		"aider	disabled		.aider.conf.yml,CONVENTIONS.md	.aider.conf.yml|config|yaml,CONVENTIONS.md|context|markdown",
 	} {
 		if !strings.Contains(output, want) {

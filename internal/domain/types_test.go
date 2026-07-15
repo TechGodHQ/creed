@@ -80,6 +80,13 @@ func TestTargetOutputDescriptors(t *testing.T) {
 				{Path: ".gemini/", Kind: OutputKindSkillDir, Format: "markdown"},
 			},
 		},
+		{
+			name: "opencode",
+			want: []TargetOutput{
+				{Path: "AGENTS.md", Kind: OutputKindContext, Format: "markdown"},
+				{Path: ".opencode/agents/", Kind: OutputKindSkillDir, Format: "markdown"},
+			},
+		},
 	}
 
 	for _, tt := range tests {
@@ -162,7 +169,7 @@ func TestLookupTargetUnknownReturnsError(t *testing.T) {
 
 func TestAllTargetNamesIncludesExpected(t *testing.T) {
 	names := AllTargetNames()
-	expected := []string{"agents", "aider", "claude", "codex", "copilot", "cursor", "gemini", "windsurf"}
+	expected := []string{"agents", "aider", "claude", "codex", "copilot", "cursor", "gemini", "opencode", "windsurf"}
 	if len(names) != len(expected) {
 		t.Fatalf("expected %d targets, got %d: %v", len(expected), len(names), names)
 	}
