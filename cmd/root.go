@@ -23,5 +23,7 @@ func Execute() error {
 func init() {
 	rootCmd.PersistentFlags().BoolP("verbose", "v", false, "verbose output")
 	rootCmd.SetVersionTemplate("creed {{.Version}}\n")
-	registerGeneratedCommands(rootCmd, service.New("."))
+	svc := service.New(".")
+	registerGeneratedCommands(rootCmd, svc)
+	rootCmd.AddCommand(newMCPCommand(".", serveMCPStdio))
 }
