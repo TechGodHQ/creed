@@ -506,3 +506,62 @@ func toManifestYAML(manifest *domain.Manifest) manifestYAML {
 	}
 	return mf
 }
+
+// watchRoots returns the canonical .creed/ subdirectories that watch
+// mode should observe. The paths are absolute so that fsnotify events
+// are reported in a stable form regardless of the process cwd.
+//
+// watchRoots is intentionally tolerant of partial layouts: a missing
+// skills or config directory simply does not get watched, but a missing
+// .creed directory or manifest is a hard error because there is nothing
+// to watch.
+func (s *Implementation) watchRoots() ([]string, error) {
+	creedDir := s.creedDir()
+	info, err := os.Stat(creedDir)
+	if err != nil {
+		return nil, fmt.Errorf("stat creed dir: %w", err)
+	}
+	if !info.IsDir() {
+		return nil, fmt.Errorf("creed path is not a directory: %s", creedDir)
+	}
+	if _, err := os.Stat(s.manifestPath()); err != nil {
+		return nil, fmt.Errorf("stat manifest: %w", err)
+	}
+
+	roots := []string{creedDir}
+	for _, sub := range []string{"config", "skills"} {
+		p := filepath.Join(creedDir, sub)
+		if _, err := os.Stat(p); err == nil {
+			roots = append(roots, p)
+		}
+	}
+	return roots, nil
+}
+
+// Watch watches the canonical .creed/ sources and runs a debounced
+// sync after each stable change. The call blocks until ctx is cancelled
+// (typically via Ctrl-C in the CLI) or until the underlying watcher
+// reports an unrecoverable error.
+func (s *Implementation) Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	roots, err := s.watchRoots()
+	if err != nil {
+		return err
+	}
+	watcher, err := localfs.NewWatcher()
+	if err != nil {
+		return err
+	}
+	defer func() {
+		_ = watcher.Close()
+	}()
+
+	syncFn := func(ctx context.Context, syncOpts usecase.SyncOptions) (*usecase.SyncResult, error) {
+		engine := usecase.NewSyncEngine(localfs.NewSource(s.root), localfs.NewEmitter(s.root))
+		return engine.Sync(ctx, syncOpts)
+	}
+	engine := usecase.NewWatchEngine(watcher, syncFn)
+	return engine.Watch(ctx, roots, opts, sink)
+}

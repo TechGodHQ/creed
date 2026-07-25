@@ -21,5 +21,6 @@ func Commands(s service.Service) []*cobra.Command {
 		NewDisableTargetCommand(s),
 		NewPullCommand(s),
 		NewPushCommand(s),
+		NewWatchCommand(s),
 	}
 }

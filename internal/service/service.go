@@ -35,4 +35,9 @@ type Service interface {
 	Pull(ctx context.Context, remoteURL string) error
 	// Push publishes local source changes to the configured remote.
 	Push(ctx context.Context, remoteURL string) error
+	// Watch registers a Watcher on the project's canonical .creed/
+	// sources and runs a debounced sync for each stable change until
+	// ctx is cancelled. This is a blocking operation; callers must
+	// provide a cancellable context.
+	Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error
 }

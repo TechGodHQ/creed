@@ -500,10 +500,28 @@ require (
 	writeFixtureFile(t, filepath.Join(fixtureRoot, "go.sum"), string(goSum))
 	writeFixtureFile(t, filepath.Join(fixtureRoot, "internal", "usecase", "usecase.go"), `package usecase
 
+import "time"
+
 type SyncOptions struct {
 	Target string `+"`json:\"target,omitempty\"`"+`
 	DryRun bool   `+"`json:\"dry_run,omitempty\"`"+`
 	Force  bool   `+"`json:\"force,omitempty\"`"+`
+}
+
+type WatchOptions struct {
+	Target   string        `+"`json:\"target,omitempty\"`"+`
+	Quiet    bool          `+"`json:\"quiet,omitempty\"`"+`
+	Force    bool          `+"`json:\"force,omitempty\"`"+`
+	Debounce time.Duration `+"`json:\"debounce,omitempty\"`"+`
+}
+
+type WatchSink func(WatchSummary)
+
+type WatchSummary struct {
+	TriggeredAt time.Time
+	Sources     []string
+	Result      *SyncResult
+	Err         error
 }
 
 type TargetResult struct {
@@ -513,6 +531,7 @@ type TargetResult struct {
 	FilesSkipped    int
 	FilesFailed     int
 	Files           []FileResult
+	Error           error
 }
 
 type FileResult struct {
@@ -573,6 +592,8 @@ type Service interface {
 	ListTargets(ctx context.Context) ([]domain.TargetInfo, error)
 	// Ping proves a new DTO-backed operation is generated across all surfaces.
 	Ping(ctx context.Context, req PingRequest) (PingResult, error)
+	// Watch is a blocking CLI-only operation; it must not be generated into MCP/HTTP.
+	Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error
 }
 `)
 
@@ -685,6 +706,10 @@ func (f *fakeService) Ping(ctx context.Context, req service.PingRequest) (servic
 		f.httpMessage, f.httpLoud = req.Message, req.Loud
 	}
 	return service.PingResult{Message: req.Message, Loud: req.Loud}, nil
+}
+
+func (f *fakeService) Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error {
+	return nil
 }
 
 func mcpToolHandler(tools []mcpgen.GeneratedTool, name string) (mcpgen.ToolHandler, bool) {

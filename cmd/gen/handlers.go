@@ -135,3 +135,23 @@ func runPush(cmd *cobra.Command, s service.Service, args []string) error {
 	remoteURL := positionalInput(args, 0)
 	return s.Push(cmd.Context(), remoteURL)
 }
+
+func runWatch(cmd *cobra.Command, s service.Service, args []string) error {
+	target, err := stringFlag(cmd, "target")
+	if err != nil {
+		return err
+	}
+	quiet, err := boolFlag(cmd, "quiet")
+	if err != nil {
+		return err
+	}
+	force, err := boolFlag(cmd, "force")
+	if err != nil {
+		return err
+	}
+	debounce, err := stringFlag(cmd, "debounce")
+	if err != nil {
+		return err
+	}
+	return runWatchCommand(cmd, s, target, quiet, force, debounce)
+}
