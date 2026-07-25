@@ -36,6 +36,10 @@ func NewWatcher() (*Watcher, error) {
 	return w, nil
 }
 
+// Compile-time interface assertion — prevents silent drift between
+// ports.Watcher and the localfs implementation.
+var _ ports.Watcher = (*Watcher)(nil)
+
 // Add registers a recursive watch rooted at path. Non-existent paths
 // return an error. The path and all currently-existing descendants
 // are watched; directories created later are picked up lazily by

@@ -736,8 +736,14 @@ func operationDescriptorContent(methods []serviceMethod) (string, error) {
 		fmt.Fprintf(&ops, "		OperationName: %s,\n", strconv.Quote(operationName))
 		fmt.Fprintf(&ops, "		Description: %s,\n", strconv.Quote(doc))
 		fmt.Fprintf(&ops, "		CLIName: %s,\n", strconv.Quote(cliCommandName(method.Name, operationName)))
-		fmt.Fprintf(&ops, "		MCPName: %s,\n", strconv.Quote(operationName))
-		fmt.Fprintf(&ops, "		HTTPRoute: %s,\n", strconv.Quote("/v1/operations/"+operationName))
+		mcpName := operationName
+		httpRoute := "/v1/operations/" + operationName
+		if isCLIOnlyMethod(method.Name) {
+			mcpName = ""
+			httpRoute = ""
+		}
+		fmt.Fprintf(&ops, "		MCPName: %s,\n", strconv.Quote(mcpName))
+		fmt.Fprintf(&ops, "		HTTPRoute: %s,\n", strconv.Quote(httpRoute))
 		fmt.Fprintf(&ops, "		Inputs: []InputDescriptor{%s},\n", inputDescriptors(operationInputs(method)))
 		fmt.Fprintf(&ops, "		Outputs: []OutputDescriptor{%s},\n", outputDescriptors(method.Results))
 		fmt.Fprintf(&ops, "	},\n")
@@ -1418,6 +1424,8 @@ func cliRunner(methodName string) string {
 const cliRuntimeSource = `package gen
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -1581,8 +1589,14 @@ func runWatchCommand(cmd *cobra.Command, s service.Service, target string, quiet
 	}
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintf(out, "watching .creed/ for changes (debounce %s, target %q)\n", debounce, target)
-	return s.Watch(ctx, opts, sink)
+	fmt.Fprintf(out, "watching .creed/ for changes (debounce %s, target %q)\n", usecase.EffectiveDebounce(debounce), target)
+	if err := s.Watch(ctx, opts, sink); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 `
 

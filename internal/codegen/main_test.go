@@ -41,6 +41,19 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 		assertFileExists(t, filepath.Join(outCLI, method+".go"))
 		assertFileExists(t, filepath.Join(outMCP, method+".go"))
 	}
+	// CLIOnly methods: watch must produce a CLI wrapper but NOT an MCP tool.
+	assertFileExists(t, filepath.Join(outCLI, "watch.go"))
+	if _, err := os.Stat(filepath.Join(outMCP, "watch.go")); err == nil {
+		t.Fatalf("CLIOnly method watch should NOT generate an MCP tool, but internal/mcp/gen/watch.go exists")
+	}
+	// Operation descriptor for watch must exist (the CLI wrapper depends on it).
+	opsBytes, err := os.ReadFile(filepath.Join(outOps, "operations.go"))
+	if err != nil {
+		t.Fatalf("read generated operation descriptors: %v", err)
+	}
+	if !strings.Contains(string(opsBytes), `MethodName:    "Watch"`) {
+		t.Fatalf("operation descriptors missing Watch entry; the CLI wrapper will panic at init")
+	}
 	assertFileExists(t, filepath.Join(outHTTP, "handlers.go"))
 	cliSync, err := os.ReadFile(filepath.Join(outCLI, "sync.go"))
 	if err != nil {
@@ -522,6 +535,15 @@ type WatchSummary struct {
 	Sources     []string
 	Result      *SyncResult
 	Err         error
+}
+
+// EffectiveDebounce mirrors the real usecase.EffectiveDebounce signature
+// so the generated runtime helper compiles against this stub package.
+func EffectiveDebounce(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 500 * time.Millisecond
+	}
+	return d
 }
 
 type TargetResult struct {

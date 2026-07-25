@@ -102,7 +102,11 @@ func TestWatchCommandSyncsOnSourceChange(t *testing.T) {
 	rootCmd.SetOut(safeOut)
 	rootCmd.SetErr(safeOut)
 	rootCmd.SetArgs([]string{"watch", "--target", "claude", "--debounce", "50ms"})
-	defer rootCmd.SetArgs(nil)
+	defer func() {
+		rootCmd.SetOut(os.Stdout)
+		rootCmd.SetErr(os.Stderr)
+		rootCmd.SetArgs(nil)
+	}()
 
 	watchErr := make(chan error, 1)
 	go func() {

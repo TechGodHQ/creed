@@ -1,6 +1,8 @@
 package gen
 
 import (
+	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -164,6 +166,12 @@ func runWatchCommand(cmd *cobra.Command, s service.Service, target string, quiet
 	}
 	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
-	fmt.Fprintf(out, "watching .creed/ for changes (debounce %s, target %q)\n", debounce, target)
-	return s.Watch(ctx, opts, sink)
+	fmt.Fprintf(out, "watching .creed/ for changes (debounce %s, target %q)\n", usecase.EffectiveDebounce(debounce), target)
+	if err := s.Watch(ctx, opts, sink); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

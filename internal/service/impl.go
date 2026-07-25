@@ -507,14 +507,12 @@ func toManifestYAML(manifest *domain.Manifest) manifestYAML {
 	return mf
 }
 
-// watchRoots returns the canonical .creed/ subdirectories that watch
-// mode should observe. The paths are absolute so that fsnotify events
-// are reported in a stable form regardless of the process cwd.
-//
-// watchRoots is intentionally tolerant of partial layouts: a missing
-// skills or config directory simply does not get watched, but a missing
-// .creed directory or manifest is a hard error because there is nothing
-// to watch.
+// watchRoots returns the canonical .creed/ source paths that watch
+// mode should observe. We intentionally return the manifest file and
+// the specific config/skills subdirectories rather than the entire
+// .creed/ tree, so unrelated files (caches, scratch, editor backups)
+// do not trigger syncs. Missing subdirectories are silently skipped
+// rather than erroring; a missing .creed or manifest is a hard error.
 func (s *Implementation) watchRoots() ([]string, error) {
 	creedDir := s.creedDir()
 	info, err := os.Stat(creedDir)
@@ -528,7 +526,7 @@ func (s *Implementation) watchRoots() ([]string, error) {
 		return nil, fmt.Errorf("stat manifest: %w", err)
 	}
 
-	roots := []string{creedDir}
+	roots := []string{s.manifestPath()}
 	for _, sub := range []string{"config", "skills"} {
 		p := filepath.Join(creedDir, sub)
 		if _, err := os.Stat(p); err == nil {

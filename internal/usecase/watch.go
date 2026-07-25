@@ -3,7 +3,6 @@ package usecase
 import (
 	"context"
 	"fmt"
-	"sync"
 	"time"
 
 	"github.com/techgodhq/creed/internal/ports"
@@ -16,16 +15,19 @@ type WatchOptions struct {
 	Target string `json:"target,omitempty"`
 
 	// Quiet suppresses per-target sync result output, reporting only
-	// errors and a minimal heartbeat.
+	// errors and a minimal heartbeat. Honored by sinks that the CLI
+	// installs; the engine itself does not interpret this flag.
 	Quiet bool `json:"quiet,omitempty"`
 
 	// Force rewrites files even when content is unchanged on each sync.
 	Force bool `json:"force,omitempty"`
 
 	// Debounce is the quiet period required after the last filesystem
-	// event before a sync is triggered. Zero falls back to a sane
-	// default (DefaultWatchDebounce). Values below MinWatchDebounce are
-	// clamped up to MinWatchDebounce.
+	// event before a sync is triggered. Each new event received during
+	// the window resets the timer, so a continuous burst produces one
+	// sync after activity settles, not one sync after the first event.
+	// Zero falls back to DefaultWatchDebounce. Values below
+	// MinWatchDebounce are clamped up to MinWatchDebounce.
 	Debounce time.Duration `json:"debounce,omitempty"`
 }
 
@@ -38,7 +40,8 @@ const DefaultWatchDebounce = 500 * time.Millisecond
 const MinWatchDebounce = 50 * time.Millisecond
 
 // WatchSink receives per-sync summaries from a running WatchEngine.
-// Returning an error halts the engine.
+// The sink is invoked synchronously from the watch loop; a slow sink
+// delays subsequent event processing but cannot halt the engine.
 type WatchSink func(summary WatchSummary)
 
 // WatchSummary is the result of one debounced sync during a watch run.
@@ -74,8 +77,14 @@ func NewWatchEngine(watcher ports.Watcher, sync func(ctx context.Context, opts S
 
 // Watch registers the supplied roots, then debounces events and runs a
 // sync for each stable change until ctx is cancelled. The returned
-// error is always either ctx.Err() or the first watcher-level error
-// that cannot be tolerated.
+// error is always either ctx.Err() (which the CLI maps to a clean
+// exit when caused by SIGINT/SIGTERM) or the first watcher-level
+// error that cannot be tolerated.
+//
+// The debounce timer is reset on every new event, so a continuous
+// burst produces exactly one sync once activity settles for the
+// debounce window. The loop owns all timer state, so there are no
+// goroutines to leak on exit.
 func (e *WatchEngine) Watch(ctx context.Context, roots []string, opts WatchOptions, sink WatchSink) error {
 	if err := ctx.Err(); err != nil {
 		return err
@@ -89,57 +98,44 @@ func (e *WatchEngine) Watch(ctx context.Context, roots []string, opts WatchOptio
 	}
 
 	var (
-		timerMu sync.Mutex
-		timer   *time.Timer
-
-		pendingMu sync.Mutex
-		pending   []string
-
-		flush   = make(chan struct{}, 1)
-		stopCh  = make(chan struct{})
-		stopped sync.Once
+		pending     []string
+		timer       *time.Timer
+		timerFiredC <-chan time.Time
 	)
-	defer stopped.Do(func() { close(stopCh) })
 
-	// Goroutine: own the timer so the select below never races on
-	// timer.Stop / timer.Reset against itself.
-	go func() {
-		for {
-			select {
-			case <-stopCh:
-				timerMu.Lock()
-				if timer != nil {
-					timer.Stop()
-				}
-				timerMu.Unlock()
-				return
-			case <-flush:
-				// Wait for the debounce window. If a new event arrives
-				// during the wait, flush fires again and resets us.
-				timerMu.Lock()
-				if timer != nil {
-					timer.Stop()
-				}
-				timer = time.NewTimer(debounce)
-				t := timer
-				timerMu.Unlock()
-
+	// stopTimer stops any active timer and nils it out.
+	stopTimer := func() {
+		if timer != nil {
+			if !timer.Stop() {
+				// Drain if it already fired and we hadn't read it.
 				select {
-				case <-stopCh:
-					t.Stop()
-					return
-				case <-t.C:
-					pendingMu.Lock()
-					snapshot := drainSources(&pending)
-					pendingMu.Unlock()
-					if len(snapshot) == 0 {
-						continue
-					}
-					e.runOneSync(ctx, opts, snapshot, sink)
+				case <-timer.C:
+				default:
 				}
 			}
+			timer = nil
+			timerFiredC = nil
 		}
-	}()
+	}
+	defer stopTimer()
+
+	// resetTimer starts (or restarts) the debounce window. Called
+	// whenever a new event arrives, even mid-window, so the timer
+	// reflects the most recent change.
+	resetTimer := func() {
+		if timer == nil {
+			timer = time.NewTimer(debounce)
+		} else {
+			if !timer.Stop() {
+				select {
+				case <-timer.C:
+				default:
+				}
+			}
+			timer.Reset(debounce)
+		}
+		timerFiredC = timer.C
+	}
 
 	for {
 		select {
@@ -157,13 +153,17 @@ func (e *WatchEngine) Watch(ctx context.Context, roots []string, opts WatchOptio
 			if !ok {
 				return nil
 			}
-			pendingMu.Lock()
 			pending = append(pending, ev.Path)
-			pendingMu.Unlock()
-			select {
-			case flush <- struct{}{}:
-			default:
+			resetTimer()
+		case <-timerFiredC:
+			timer = nil
+			timerFiredC = nil
+			snapshot := pending
+			pending = nil
+			if len(snapshot) == 0 {
+				continue
 			}
+			e.runOneSync(ctx, opts, snapshot, sink)
 		}
 	}
 }
@@ -181,16 +181,6 @@ func (e *WatchEngine) runOneSync(ctx context.Context, opts WatchOptions, sources
 	}
 }
 
-func drainSources(pending *[]string) []string {
-	if len(*pending) == 0 {
-		return nil
-	}
-	snapshot := make([]string, len(*pending))
-	copy(snapshot, *pending)
-	*pending = (*pending)[:0]
-	return snapshot
-}
-
 func normalizedDebounce(d time.Duration) time.Duration {
 	if d <= 0 {
 		return DefaultWatchDebounce
@@ -199,4 +189,11 @@ func normalizedDebounce(d time.Duration) time.Duration {
 		return MinWatchDebounce
 	}
 	return d
+}
+
+// EffectiveDebounce returns the debounce duration the engine will use
+// for the given option, after applying defaults and clamps. The CLI
+// uses this to print an accurate banner.
+func EffectiveDebounce(d time.Duration) time.Duration {
+	return normalizedDebounce(d)
 }

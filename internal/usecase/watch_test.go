@@ -214,6 +214,55 @@ func TestNormalizedDebounce(t *testing.T) {
 	}
 }
 
+func TestWatchEngineResetsDebounceOnEachNewEvent(t *testing.T) {
+	// This test guards against a regression where the debounce timer
+	// fired 500ms after the FIRST event instead of after the LAST one.
+	// We send an event, wait most of the debounce window, then send
+	// a second event. If the timer were not reset, a sync would fire
+	// before the second event lands and this test would fail.
+	w := newFakeWatcher()
+	syncCounter := atomic.Int32{}
+	engine := NewWatchEngine(w, func(ctx context.Context, opts SyncOptions) (*SyncResult, error) {
+		syncCounter.Add(1)
+		return &SyncResult{}, nil
+	})
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+
+	doneCh := make(chan error, 1)
+	go func() {
+		doneCh <- engine.Watch(ctx, []string{"./.creed"}, WatchOptions{Debounce: 100 * time.Millisecond}, nil)
+	}()
+
+	// First event.
+	w.events <- ports.WatchEvent{Path: "./.creed/config/project.md"}
+
+	// Wait long enough that a non-resetting timer would fire (80ms > 50%
+	// of the 100ms window) but short of the full window.
+	time.Sleep(80 * time.Millisecond)
+	if syncCounter.Load() != 0 {
+		t.Fatalf("sync fired mid-window after first event: counter=%d, want 0", syncCounter.Load())
+	}
+
+	// Second event should reset the timer so it fires ~100ms from now,
+	// not ~20ms from now.
+	w.events <- ports.WatchEvent{Path: "./.creed/config/development.md"}
+
+	// If the timer was correctly reset, we should still have zero syncs
+	// at the 50ms mark (halfway through the new window).
+	time.Sleep(50 * time.Millisecond)
+	if syncCounter.Load() != 0 {
+		t.Fatalf("sync fired before debounce window elapsed after second event: counter=%d, want 0", syncCounter.Load())
+	}
+
+	// Now the window should elapse and the sync should fire.
+	waitFor(t, func() bool { return syncCounter.Load() == 1 }, "debounced sync did not fire after activity settled", 200*time.Millisecond)
+
+	cancel()
+	<-doneCh
+}
+
 func waitFor(t *testing.T, condition func() bool, msg string, timeout time.Duration) {
 	t.Helper()
 	deadline := time.Now().Add(timeout)
