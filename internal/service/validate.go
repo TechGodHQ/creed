@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/techgodhq/creed/internal/domain"
 	"gopkg.in/yaml.v3"
+
+	"github.com/techgodhq/creed/internal/domain"
 )
 
 // ValidationDiagnostic identifies one manifest or source-health finding.
