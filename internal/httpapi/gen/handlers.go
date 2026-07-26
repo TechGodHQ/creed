@@ -28,6 +28,7 @@ func GeneratedOperations(s service.Service) []GeneratedOperation {
 		{Descriptor: mustOperation("Init"), Handler: InitHTTPHandler(s)},
 		{Descriptor: mustOperation("Sync"), Handler: SyncHTTPHandler(s)},
 		{Descriptor: mustOperation("Validate"), Handler: ValidateHTTPHandler(s)},
+		{Descriptor: mustOperation("Diff"), Handler: DiffHTTPHandler(s)},
 		{Descriptor: mustOperation("AddSkill"), Handler: AddSkillHTTPHandler(s)},
 		{Descriptor: mustOperation("RemoveSkill"), Handler: RemoveSkillHTTPHandler(s)},
 		{Descriptor: mustOperation("ListSkills"), Handler: ListSkillsHTTPHandler(s)},
@@ -92,6 +93,25 @@ func ValidateHTTPHandler(s service.Service) OperationHandler {
 			return nil, err
 		}
 		result, err := s.Validate(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+type diffRequest struct {
+	Target string `json:"target,omitempty"`
+}
+
+// DiffHTTPHandler returns the generated HTTP handler for service.Service.Diff.
+func DiffHTTPHandler(s service.Service) OperationHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req diffRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		result, err := s.Diff(ctx, usecase.DiffOptions{Target: req.Target})
 		if err != nil {
 			return nil, err
 		}

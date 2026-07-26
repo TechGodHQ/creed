@@ -916,6 +916,11 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 		fmt.Fprintf(&b, "	for _, target := range result.Targets {\n		status := \"disabled\"\n		if target.Enabled {\n			status = \"enabled\"\n		}\n		fmt.Fprintf(cmd.OutOrStdout(), \"Target %%s: %%s\\n\", target.Name, status)\n	}\n")
 		fmt.Fprintf(&b, "	for _, check := range result.Checks {\n		if check.Kind == \"error\" {\n			fmt.Fprintf(cmd.OutOrStdout(), \"ERROR %%s: %%s\\n\", check.Code, check.Message)\n		}\n	}\n")
 		fmt.Fprintf(&b, "	if result.HasErrors() {\n		return fmt.Errorf(\"doctor found issues\")\n	}\n	fmt.Fprintln(cmd.OutOrStdout(), \"All checks passed\")\n	return nil\n}\n\n")
+	case "Diff":
+		fmt.Fprintf(&b, "	result, err := s.Diff(%s)\n", callArgs)
+		fmt.Fprintf(&b, "	if err != nil {\n		return err\n	}\n")
+		fmt.Fprintf(&b, "	if diff := result.UnifiedDiff(); diff != \"\" {\n		fmt.Fprint(cmd.OutOrStdout(), diff)\n	}\n")
+		fmt.Fprintf(&b, "	if result.HasDifferences() {\n		return diffExitStatus{}\n	}\n	return nil\n}\n\n")
 	case "Watch":
 		fmt.Fprintf(&b, "\treturn runWatchCommand(cmd, s, target, quiet, force, debounce)\n}\n\n")
 	case "AddSkill", "AddConfig":
@@ -1483,6 +1488,13 @@ import (
 
 type commandRunner func(*cobra.Command, service.Service, []string) error
 
+// diffExitStatus signals the conventional successful comparison-with-differences
+// exit code without printing an error diagnostic.
+type diffExitStatus struct{}
+
+func (diffExitStatus) Error() string { return "differences found" }
+func (diffExitStatus) ExitCode() int { return 1 }
+
 func mustOperation(methodName string) opsgen.OperationDescriptor {
 	operation, ok := opsgen.ByMethodName(methodName)
 	if !ok {
@@ -1499,6 +1511,10 @@ func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runner(cmd, s, args)
 		},
+	}
+	if operation.MethodName == "Diff" {
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
 	}
 	for _, input := range operation.Inputs {
 		if input.CLIKind != "flag" {

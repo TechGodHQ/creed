@@ -2,6 +2,7 @@ package localfs
 
 import (
 	"context"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"testing"
@@ -194,5 +195,60 @@ func TestCleanEmptyDir(t *testing.T) {
 	// Clean on a directory with nothing emitted should not error.
 	if err := emitter.Clean(context.Background(), target); err != nil {
 		t.Fatalf("Clean on empty dir error: %v", err)
+	}
+}
+
+func TestExistingFilesRejectsEscapingOwnershipPath(t *testing.T) {
+	baseDir := t.TempDir()
+	emitter := NewEmitter(baseDir)
+	path := emitter.ownershipPath("claude")
+	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal([]string{"../../outside"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := emitter.ExistingFiles(context.Background(), testTarget(), nil); err == nil {
+		t.Fatal("ExistingFiles accepted an escaping ownership path")
+	}
+}
+
+func TestExistingFilesIncludesCandidateWithoutOwnershipManifest(t *testing.T) {
+	baseDir := t.TempDir()
+	emitter := NewEmitter(baseDir)
+	if err := os.MkdirAll(filepath.Join(baseDir, ".claude", "skills"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(baseDir, ".claude", "skills", "review.md"), []byte("# review\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	files, err := emitter.ExistingFiles(context.Background(), testTarget(), []ports.EmittedFile{{Path: ".claude/skills/review.md"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(files) != 1 || files[0].Path != ".claude/skills/review.md" {
+		t.Fatalf("candidate inventory = %#v, want matching candidate file", files)
+	}
+}
+
+func TestEmitRejectsSymlinkedOwnershipDirectory(t *testing.T) {
+	baseDir := t.TempDir()
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(baseDir, ".creed"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(external, filepath.Join(baseDir, ".creed", ".outputs")); err != nil {
+		t.Fatal(err)
+	}
+	emitter := NewEmitter(baseDir)
+	if _, err := emitter.Emit(context.Background(), testTarget(), []ports.EmittedFile{{Path: "CLAUDE.md", Content: []byte("# Claude\n")}}); err == nil {
+		t.Fatal("Emit accepted a symlinked ownership directory")
+	}
+	if _, err := os.Stat(filepath.Join(external, "claude.json")); !os.IsNotExist(err) {
+		t.Fatalf("ownership metadata escaped project: %v", err)
 	}
 }

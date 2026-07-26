@@ -45,3 +45,16 @@ type TargetEmitter interface {
 	// from the output location.
 	Clean(ctx context.Context, target domain.Target) error
 }
+
+// ExistingFile is a generated output currently owned by a target.
+type ExistingFile struct {
+	Path    string
+	Content []byte
+}
+
+// OutputInventory is an optional read-only capability used to read candidate
+// outputs and identify stale generated output. Candidates must be included even
+// if no prior ownership record exists, so pre-existing matching output is clean.
+type OutputInventory interface {
+	ExistingFiles(ctx context.Context, target domain.Target, candidates []EmittedFile) ([]ExistingFile, error)
+}

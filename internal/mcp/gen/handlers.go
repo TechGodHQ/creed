@@ -30,6 +30,7 @@ func GeneratedTools(s service.Service) []GeneratedTool {
 		{Spec: InitToolSpec(), Tool: InitMCPTool(), Handler: InitMCPHandler(s)},
 		{Spec: SyncToolSpec(), Tool: SyncMCPTool(), Handler: SyncMCPHandler(s)},
 		{Spec: ValidateToolSpec(), Tool: ValidateMCPTool(), Handler: ValidateMCPHandler(s)},
+		{Spec: DiffToolSpec(), Tool: DiffMCPTool(), Handler: DiffMCPHandler(s)},
 		{Spec: AddSkillToolSpec(), Tool: AddSkillMCPTool(), Handler: AddSkillMCPHandler(s)},
 		{Spec: RemoveSkillToolSpec(), Tool: RemoveSkillMCPTool(), Handler: RemoveSkillMCPHandler(s)},
 		{Spec: ListSkillsToolSpec(), Tool: ListSkillsMCPTool(), Handler: ListSkillsMCPHandler(s)},
@@ -131,6 +132,37 @@ func ValidateMCPHandler(s service.Service) ToolHandler {
 			return nil, err
 		}
 		result, err := s.Validate(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+type diffRequest struct {
+	Target string `json:"target,omitempty"`
+}
+
+// DiffToolSpec returns generated MCP metadata for service.Service.Diff.
+func DiffToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "Diff", Name: DiffToolName, Description: DiffToolDescription, ParamNames: []string{"target"}}
+}
+
+// DiffMCPTool returns the generated MCP tool definition for service.Service.Diff.
+func DiffMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(DiffToolDescription)}
+	options = append(options, mcplib.WithString("target"))
+	return mcplib.NewTool(DiffToolName, options...)
+}
+
+// DiffMCPHandler returns the generated MCP handler for service.Service.Diff.
+func DiffMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req diffRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		result, err := s.Diff(ctx, usecase.DiffOptions{Target: req.Target})
 		if err != nil {
 			return nil, err
 		}
