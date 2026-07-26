@@ -25,6 +25,12 @@ type Service interface {
 	RemoveSkill(ctx context.Context, name string) error
 	// ListSkills returns all registered skills.
 	ListSkills(ctx context.Context) ([]domain.SkillInfo, error)
+	// AddConfig registers a configuration file in the manifest.
+	AddConfig(ctx context.Context, name, sourcePath string) error
+	// RemoveConfig removes a configuration file registration from the manifest.
+	RemoveConfig(ctx context.Context, name string) error
+	// ListConfigs returns all registered configuration files.
+	ListConfigs(ctx context.Context) ([]domain.ConfigInfo, error)
 	// ListTargets returns all known targets with manifest enablement metadata.
 	ListTargets(ctx context.Context) ([]domain.TargetInfo, error)
 	// EnableTarget enables a target in the manifest, creating it if needed.

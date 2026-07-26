@@ -32,6 +32,9 @@ func GeneratedTools(s service.Service) []GeneratedTool {
 		{Spec: AddSkillToolSpec(), Tool: AddSkillMCPTool(), Handler: AddSkillMCPHandler(s)},
 		{Spec: RemoveSkillToolSpec(), Tool: RemoveSkillMCPTool(), Handler: RemoveSkillMCPHandler(s)},
 		{Spec: ListSkillsToolSpec(), Tool: ListSkillsMCPTool(), Handler: ListSkillsMCPHandler(s)},
+		{Spec: AddConfigToolSpec(), Tool: AddConfigMCPTool(), Handler: AddConfigMCPHandler(s)},
+		{Spec: RemoveConfigToolSpec(), Tool: RemoveConfigMCPTool(), Handler: RemoveConfigMCPHandler(s)},
+		{Spec: ListConfigsToolSpec(), Tool: ListConfigsMCPTool(), Handler: ListConfigsMCPHandler(s)},
 		{Spec: ListTargetsToolSpec(), Tool: ListTargetsMCPTool(), Handler: ListTargetsMCPHandler(s)},
 		{Spec: EnableTargetToolSpec(), Tool: EnableTargetMCPTool(), Handler: EnableTargetMCPHandler(s)},
 		{Spec: DisableTargetToolSpec(), Tool: DisableTargetMCPTool(), Handler: DisableTargetMCPHandler(s)},
@@ -194,6 +197,99 @@ func ListSkillsMCPHandler(s service.Service) ToolHandler {
 			return nil, err
 		}
 		result, err := s.ListSkills(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+type addConfigRequest struct {
+	Name       string `json:"name"`
+	SourcePath string `json:"source_path,omitempty"`
+}
+
+// AddConfigToolSpec returns generated MCP metadata for service.Service.AddConfig.
+func AddConfigToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "AddConfig", Name: AddConfigToolName, Description: AddConfigToolDescription, ParamNames: []string{"name", "source_path"}}
+}
+
+// AddConfigMCPTool returns the generated MCP tool definition for service.Service.AddConfig.
+func AddConfigMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(AddConfigToolDescription)}
+	options = append(options, mcplib.WithString("name", mcplib.Required()))
+	options = append(options, mcplib.WithString("source_path"))
+	return mcplib.NewTool(AddConfigToolName, options...)
+}
+
+// AddConfigMCPHandler returns the generated MCP handler for service.Service.AddConfig.
+func AddConfigMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req addConfigRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if err := s.AddConfig(ctx, req.Name, req.SourcePath); err != nil {
+			return nil, err
+		}
+		return okResponse{OK: true}, nil
+	}
+}
+
+type removeConfigRequest struct {
+	Name string `json:"name"`
+}
+
+// RemoveConfigToolSpec returns generated MCP metadata for service.Service.RemoveConfig.
+func RemoveConfigToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "RemoveConfig", Name: RemoveConfigToolName, Description: RemoveConfigToolDescription, ParamNames: []string{"name"}}
+}
+
+// RemoveConfigMCPTool returns the generated MCP tool definition for service.Service.RemoveConfig.
+func RemoveConfigMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(RemoveConfigToolDescription)}
+	options = append(options, mcplib.WithString("name", mcplib.Required()))
+	return mcplib.NewTool(RemoveConfigToolName, options...)
+}
+
+// RemoveConfigMCPHandler returns the generated MCP handler for service.Service.RemoveConfig.
+func RemoveConfigMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req removeConfigRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if err := s.RemoveConfig(ctx, req.Name); err != nil {
+			return nil, err
+		}
+		return okResponse{OK: true}, nil
+	}
+}
+
+// ListConfigsToolSpec returns generated MCP metadata for service.Service.ListConfigs.
+func ListConfigsToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "ListConfigs", Name: ListConfigsToolName, Description: ListConfigsToolDescription, ParamNames: []string{}}
+}
+
+// ListConfigsMCPTool returns the generated MCP tool definition for service.Service.ListConfigs.
+func ListConfigsMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(ListConfigsToolDescription)}
+	return mcplib.NewTool(ListConfigsToolName, options...)
+}
+
+// ListConfigsMCPHandler returns the generated MCP handler for service.Service.ListConfigs.
+func ListConfigsMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		if err := decodePayload(payload, &struct{}{}); err != nil {
+			return nil, err
+		}
+		result, err := s.ListConfigs(ctx)
 		if err != nil {
 			return nil, err
 		}

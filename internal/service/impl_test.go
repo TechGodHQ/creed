@@ -251,6 +251,75 @@ func TestAddRemoveSkillMutatesManifest(t *testing.T) {
 	}
 }
 
+func TestAddRemoveConfigMutatesManifest(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := svc.AddConfig(ctx, "testing", "config/testing.md"); err != nil {
+		t.Fatalf("AddConfig() error = %v", err)
+	}
+	configs, err := svc.ListConfigs(ctx)
+	if err != nil {
+		t.Fatalf("ListConfigs() error = %v", err)
+	}
+	if len(configs) != 3 || configs[0].Name != "development" || configs[1].Name != "project" || configs[2].Name != "testing" || configs[2].Path != "config/testing.md" {
+		t.Fatalf("ListConfigs() = %#v, want alphabetically ordered configs including testing", configs)
+	}
+	if err := svc.AddConfig(ctx, "testing", "config/testing-v2.md"); err != nil {
+		t.Fatalf("AddConfig(update) error = %v", err)
+	}
+	configs, err = svc.ListConfigs(ctx)
+	if err != nil {
+		t.Fatalf("ListConfigs(update) error = %v", err)
+	}
+	if len(configs) != 3 || configs[2].Path != "config/testing-v2.md" {
+		t.Fatalf("updated configs = %#v, want one updated entry", configs)
+	}
+	if err := svc.RemoveConfig(ctx, "testing"); err != nil {
+		t.Fatalf("RemoveConfig() error = %v", err)
+	}
+	configs, err = svc.ListConfigs(ctx)
+	if err != nil {
+		t.Fatalf("ListConfigs(after remove) error = %v", err)
+	}
+	if len(configs) != 2 || configs[0].Name != "development" || configs[1].Name != "project" {
+		t.Fatalf("configs after remove = %#v, want alphabetically ordered default configs", configs)
+	}
+}
+
+func TestConfigOperationsValidateNamesAndMissingEntries(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := svc.AddConfig(ctx, "", ""); err == nil || !strings.Contains(err.Error(), "config name is required") {
+		t.Fatalf("AddConfig(empty name) error = %v, want config name error", err)
+	}
+	if err := svc.RemoveConfig(ctx, "missing"); err == nil || !strings.Contains(err.Error(), "config not found: missing") {
+		t.Fatalf("RemoveConfig(missing) error = %v, want missing config error", err)
+	}
+	if err := svc.AddConfig(ctx, "default", ""); err != nil {
+		t.Fatalf("AddConfig(default path) error = %v", err)
+	}
+	configs, err := svc.ListConfigs(ctx)
+	if err != nil {
+		t.Fatalf("ListConfigs() error = %v", err)
+	}
+	for _, config := range configs {
+		if config.Name == "default" && config.Path != "config/default.md" {
+			t.Fatalf("default config path = %q, want config/default.md", config.Path)
+		}
+	}
+	if len(configs) != 3 || configs[0].Name != "default" || configs[1].Name != "development" || configs[2].Name != "project" {
+		t.Fatalf("configs are not sorted after add: %#v", configs)
+	}
+}
+
 func TestEnableDisableTargetAndSync(t *testing.T) {
 	root := t.TempDir()
 	svc := New(root)
