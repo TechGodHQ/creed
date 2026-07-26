@@ -897,14 +897,24 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 		fmt.Fprintf(&b, "\tif result.HasErrors() {\n\t\treturn fmt.Errorf(\"sync completed with errors\")\n\t}\n\treturn nil\n}\n\n")
 	case "Watch":
 		fmt.Fprintf(&b, "\treturn runWatchCommand(cmd, s, target, quiet, force, debounce)\n}\n\n")
-	case "AddSkill":
-		fmt.Fprintf(&b, "\tif err := s.AddSkill(%s); err != nil {\n\t\treturn err\n\t}\n", callArgs)
-		fmt.Fprintf(&b, "\tfmt.Fprintf(cmd.OutOrStdout(), \"Registered skill %%s\\n\", name)\n\treturn nil\n}\n\n")
-	case "RemoveSkill":
-		fmt.Fprintf(&b, "\tif err := s.RemoveSkill(%s); err != nil {\n\t\treturn err\n\t}\n", callArgs)
-		fmt.Fprintf(&b, "\tfmt.Fprintf(cmd.OutOrStdout(), \"Removed skill %%s\\n\", name)\n\treturn nil\n}\n\n")
-	case "ListSkills":
-		fmt.Fprintf(&b, "\tskills, err := s.ListSkills(%s)\n\tif err != nil {\n\t\treturn err\n\t}\n\tfor _, skill := range skills {\n\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s\\t%%s\\n\", skill.Name, skill.Path)\n\t}\n\treturn nil\n}\n\n", callArgs)
+	case "AddSkill", "AddConfig":
+		fmt.Fprintf(&b, "	if err := s.%s(%s); err != nil {\n		return err\n	}\n", method.Name, callArgs)
+		fmt.Fprintf(&b, "	fmt.Fprintf(cmd.OutOrStdout(), \"Registered %s %%s\\n\", name)\n	return nil\n}\n\n", strings.ToLower(strings.TrimPrefix(method.Name, "Add")))
+	case "RemoveSkill", "RemoveConfig":
+		fmt.Fprintf(&b, "	if err := s.%s(%s); err != nil {\n		return err\n	}\n", method.Name, callArgs)
+		fmt.Fprintf(&b, "	fmt.Fprintf(cmd.OutOrStdout(), \"Removed %s %%s\\n\", name)\n	return nil\n}\n\n", strings.ToLower(strings.TrimPrefix(method.Name, "Remove")))
+	case "ListSkills", "ListConfigs":
+		fmt.Fprintf(&b, `	items, err := s.%s(%s)
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "%%s	%%s\n", item.Name, item.Path)
+	}
+	return nil
+}
+
+`, method.Name, callArgs)
 	case "ListTargets":
 		fmt.Fprintf(&b, `	targets, err := s.ListTargets(%s)
 	if err != nil {
@@ -1332,13 +1342,17 @@ func operationInputs(method serviceMethod) []methodParam {
 			{Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Rewrite files on each sync even when unchanged."},
 			{Name: "debounce", ExternalName: "debounce", Type: "string", Kind: "primitive", CLIKind: "flag", Help: "Debounce window (e.g. 500ms, 1s). Defaults to 500ms."},
 		}
-	case "AddSkill":
-		return []methodParam{
-			{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Skill name."},
-			{Name: "sourcePath", ExternalName: "source_path", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional source skill file path."},
+	case "AddSkill", "AddConfig":
+		kind := "skill"
+		if method.Name == "AddConfig" {
+			kind = "config"
 		}
-	case "RemoveSkill", "EnableTarget", "DisableTarget":
-		return []methodParam{{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Target or skill name."}}
+		return []methodParam{
+			{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: kind + " name."},
+			{Name: "sourcePath", ExternalName: "source_path", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional source " + kind + " file path."},
+		}
+	case "RemoveSkill", "RemoveConfig", "EnableTarget", "DisableTarget":
+		return []methodParam{{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Target, skill, or config name."}}
 	case "Pull", "Push":
 		return []methodParam{{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional git remote URL override."}}
 	default:
@@ -1396,10 +1410,16 @@ func cliUse(methodName, fallback string) string {
 		return "init [project-name]"
 	case "AddSkill":
 		return "add-skill <name> [source-path]"
+	case "AddConfig":
+		return "add-config <name> [source-path]"
 	case "RemoveSkill":
 		return "remove-skill <name>"
+	case "RemoveConfig":
+		return "remove-config <name>"
 	case "ListSkills":
 		return "list-skills"
+	case "ListConfigs":
+		return "list-configs"
 	case "ListTargets":
 		return "list-targets"
 	case "EnableTarget":

@@ -75,12 +75,42 @@ func runRemoveSkill(cmd *cobra.Command, s service.Service, args []string) error 
 }
 
 func runListSkills(cmd *cobra.Command, s service.Service, args []string) error {
-	skills, err := s.ListSkills(cmd.Context())
+	items, err := s.ListSkills(cmd.Context())
 	if err != nil {
 		return err
 	}
-	for _, skill := range skills {
-		fmt.Fprintf(cmd.OutOrStdout(), "%s\t%s\n", skill.Name, skill.Path)
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s	%s\n", item.Name, item.Path)
+	}
+	return nil
+}
+
+func runAddConfig(cmd *cobra.Command, s service.Service, args []string) error {
+	name := positionalInput(args, 0)
+	sourcePath := positionalInput(args, 1)
+	if err := s.AddConfig(cmd.Context(), name, sourcePath); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Registered config %s\n", name)
+	return nil
+}
+
+func runRemoveConfig(cmd *cobra.Command, s service.Service, args []string) error {
+	name := positionalInput(args, 0)
+	if err := s.RemoveConfig(cmd.Context(), name); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Removed config %s\n", name)
+	return nil
+}
+
+func runListConfigs(cmd *cobra.Command, s service.Service, args []string) error {
+	items, err := s.ListConfigs(cmd.Context())
+	if err != nil {
+		return err
+	}
+	for _, item := range items {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s	%s\n", item.Name, item.Path)
 	}
 	return nil
 }

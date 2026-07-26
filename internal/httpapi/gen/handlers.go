@@ -30,6 +30,9 @@ func GeneratedOperations(s service.Service) []GeneratedOperation {
 		{Descriptor: mustOperation("AddSkill"), Handler: AddSkillHTTPHandler(s)},
 		{Descriptor: mustOperation("RemoveSkill"), Handler: RemoveSkillHTTPHandler(s)},
 		{Descriptor: mustOperation("ListSkills"), Handler: ListSkillsHTTPHandler(s)},
+		{Descriptor: mustOperation("AddConfig"), Handler: AddConfigHTTPHandler(s)},
+		{Descriptor: mustOperation("RemoveConfig"), Handler: RemoveConfigHTTPHandler(s)},
+		{Descriptor: mustOperation("ListConfigs"), Handler: ListConfigsHTTPHandler(s)},
 		{Descriptor: mustOperation("ListTargets"), Handler: ListTargetsHTTPHandler(s)},
 		{Descriptor: mustOperation("EnableTarget"), Handler: EnableTargetHTTPHandler(s)},
 		{Descriptor: mustOperation("DisableTarget"), Handler: DisableTargetHTTPHandler(s)},
@@ -130,6 +133,63 @@ func ListSkillsHTTPHandler(s service.Service) OperationHandler {
 			return nil, err
 		}
 		result, err := s.ListSkills(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+type addConfigRequest struct {
+	Name       string `json:"name"`
+	SourcePath string `json:"source_path,omitempty"`
+}
+
+// AddConfigHTTPHandler returns the generated HTTP handler for service.Service.AddConfig.
+func AddConfigHTTPHandler(s service.Service) OperationHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req addConfigRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if err := s.AddConfig(ctx, req.Name, req.SourcePath); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+}
+
+type removeConfigRequest struct {
+	Name string `json:"name"`
+}
+
+// RemoveConfigHTTPHandler returns the generated HTTP handler for service.Service.RemoveConfig.
+func RemoveConfigHTTPHandler(s service.Service) OperationHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req removeConfigRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		if strings.TrimSpace(req.Name) == "" {
+			return nil, fmt.Errorf("name is required")
+		}
+		if err := s.RemoveConfig(ctx, req.Name); err != nil {
+			return nil, err
+		}
+		return nil, nil
+	}
+}
+
+// ListConfigsHTTPHandler returns the generated HTTP handler for service.Service.ListConfigs.
+func ListConfigsHTTPHandler(s service.Service) OperationHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		if err := decodePayload(payload, &struct{}{}); err != nil {
+			return nil, err
+		}
+		result, err := s.ListConfigs(ctx)
 		if err != nil {
 			return nil, err
 		}

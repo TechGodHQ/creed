@@ -172,6 +172,55 @@ func (s *Implementation) ListSkills(ctx context.Context) ([]domain.SkillInfo, er
 	return localfs.NewSource(s.root).ListSkills(ctx)
 }
 
+// AddConfig registers a configuration file path in the manifest.
+func (s *Implementation) AddConfig(ctx context.Context, name, sourcePath string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if name == "" {
+		return fmt.Errorf("config name is required")
+	}
+	if sourcePath == "" {
+		sourcePath = filepath.ToSlash(filepath.Join("config", name+".md"))
+	}
+	manifest, err := s.readManifest()
+	if err != nil {
+		return err
+	}
+	for i := range manifest.Configs {
+		if manifest.Configs[i].Name == name {
+			manifest.Configs[i].Path = sourcePath
+			return s.writeManifest(manifest)
+		}
+	}
+	manifest.Configs = append(manifest.Configs, domain.ConfigEntry{Name: name, Path: sourcePath})
+	sort.Slice(manifest.Configs, func(i, j int) bool { return manifest.Configs[i].Name < manifest.Configs[j].Name })
+	return s.writeManifest(manifest)
+}
+
+// RemoveConfig removes a configuration file registration from the manifest.
+func (s *Implementation) RemoveConfig(ctx context.Context, name string) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	manifest, err := s.readManifest()
+	if err != nil {
+		return err
+	}
+	for i := range manifest.Configs {
+		if manifest.Configs[i].Name == name {
+			manifest.Configs = append(manifest.Configs[:i], manifest.Configs[i+1:]...)
+			return s.writeManifest(manifest)
+		}
+	}
+	return fmt.Errorf("config not found: %s", name)
+}
+
+// ListConfigs lists all manifest-registered configuration files.
+func (s *Implementation) ListConfigs(ctx context.Context) ([]domain.ConfigInfo, error) {
+	return localfs.NewSource(s.root).ListConfigs(ctx)
+}
+
 // ListTargets lists all known targets and annotates them with manifest state.
 func (s *Implementation) ListTargets(ctx context.Context) ([]domain.TargetInfo, error) {
 	if err := ctx.Err(); err != nil {
