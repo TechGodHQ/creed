@@ -19,6 +19,10 @@ type Service interface {
 	Init(ctx context.Context, projectName string) error
 	// Sync syncs configured Creed context to one or more targets.
 	Sync(ctx context.Context, opts usecase.SyncOptions) (*usecase.SyncResult, error)
+	// Validate checks the manifest and its referenced Creed source files without
+	// writing outputs. Validation errors are returned in the result so generated
+	// CLI, MCP, and HTTP callers receive the same structured diagnostics.
+	Validate(ctx context.Context) (ValidationResult, error)
 	// AddSkill registers a skill file in the manifest.
 	AddSkill(ctx context.Context, name, sourcePath string) error
 	// RemoveSkill removes a skill registration from the manifest.

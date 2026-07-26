@@ -55,6 +55,16 @@ var Operations = []OperationDescriptor{
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "*usecase.SyncResult"}, {Name: "result2", Type: "error"}},
 	},
 	{
+		MethodName:    "Validate",
+		OperationName: "validate",
+		Description:   "Validate checks the manifest and its referenced Creed source files without\nwriting outputs. Validation errors are returned in the result so generated\nCLI, MCP, and HTTP callers receive the same structured diagnostics.",
+		CLIName:       "validate",
+		MCPName:       "validate",
+		HTTPRoute:     "/v1/operations/validate",
+		Inputs:        []InputDescriptor{},
+		Outputs:       []OutputDescriptor{{Name: "result1", Type: "ValidationResult"}, {Name: "result2", Type: "error"}},
+	},
+	{
 		MethodName:    "AddSkill",
 		OperationName: "add_skill",
 		Description:   "AddSkill registers a skill file in the manifest.",

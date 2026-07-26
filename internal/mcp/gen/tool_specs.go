@@ -14,6 +14,7 @@ type ToolSpec struct {
 var ToolSpecs = []ToolSpec{
 	{MethodName: "Init", Name: InitToolName, Description: InitToolDescription, ParamNames: InitToolParams},
 	{MethodName: "Sync", Name: SyncToolName, Description: SyncToolDescription, ParamNames: SyncToolParams},
+	{MethodName: "Validate", Name: ValidateToolName, Description: ValidateToolDescription, ParamNames: ValidateToolParams},
 	{MethodName: "AddSkill", Name: AddSkillToolName, Description: AddSkillToolDescription, ParamNames: AddSkillToolParams},
 	{MethodName: "RemoveSkill", Name: RemoveSkillToolName, Description: RemoveSkillToolDescription, ParamNames: RemoveSkillToolParams},
 	{MethodName: "ListSkills", Name: ListSkillsToolName, Description: ListSkillsToolDescription, ParamNames: ListSkillsToolParams},

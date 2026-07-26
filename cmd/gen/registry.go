@@ -13,6 +13,7 @@ func Commands(s service.Service) []*cobra.Command {
 	return []*cobra.Command{
 		NewInitCommand(s),
 		NewSyncCommand(s),
+		NewValidateCommand(s),
 		NewAddSkillCommand(s),
 		NewRemoveSkillCommand(s),
 		NewListSkillsCommand(s),

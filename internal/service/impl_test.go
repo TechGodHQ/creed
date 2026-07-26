@@ -400,6 +400,80 @@ func TestSyncRejectsEscapingOutputDir(t *testing.T) {
 	}
 }
 
+func TestValidateReportsManifestAndSourceDiagnostics(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(root, ".creed", "config", "empty.md"), nil, 0644); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: nope
+    enabled: true
+    output_dir: .
+skills:
+  - name: duplicate
+    path: skills/review.md
+  - name: duplicate
+    path: ../escape.md
+config:
+  - name: duplicate
+    path: config/empty.md
+  - name: other
+    path: skills/review.md
+`
+	if err := os.WriteFile(filepath.Join(root, ".creed", "manifest.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := svc.Validate(ctx)
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if result.Valid {
+		t.Fatalf("Validate() result = %#v, want invalid", result)
+	}
+	for _, code := range []string{"unknown_target", "duplicate_source_name", "unsafe_source_path", "duplicate_source_path"} {
+		if !hasDiagnostic(result.Errors, code) {
+			t.Fatalf("Validate() errors = %#v, missing %q", result.Errors, code)
+		}
+	}
+	if !hasDiagnostic(result.Warnings, "empty_source_content") {
+		t.Fatalf("Validate() warnings = %#v, missing empty-source warning", result.Warnings)
+	}
+}
+
+func TestValidateAcceptsScaffoldedProject(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+	result, err := svc.Validate(ctx)
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if !result.Valid || len(result.Errors) != 0 {
+		t.Fatalf("Validate() = %#v, want valid result", result)
+	}
+}
+
+func hasDiagnostic(diagnostics []ValidationDiagnostic, code string) bool {
+	for _, diagnostic := range diagnostics {
+		if diagnostic.Code == code {
+			return true
+		}
+	}
+	return false
+}
+
 func TestPushPublishesCreedDirToGitRemote(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("git executable not available")

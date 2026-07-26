@@ -55,6 +55,24 @@ func runSync(cmd *cobra.Command, s service.Service, args []string) error {
 	return nil
 }
 
+func runValidate(cmd *cobra.Command, s service.Service, args []string) error {
+	result, err := s.Validate(cmd.Context())
+	if err != nil {
+		return err
+	}
+	for _, diagnostic := range result.Errors {
+		fmt.Fprintf(cmd.OutOrStdout(), "ERROR %s: %s\n", diagnostic.Code, diagnostic.Message)
+	}
+	for _, diagnostic := range result.Warnings {
+		fmt.Fprintf(cmd.OutOrStdout(), "WARNING %s: %s\n", diagnostic.Code, diagnostic.Message)
+	}
+	if !result.Valid {
+		return fmt.Errorf("validation failed")
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "Validation passed")
+	return nil
+}
+
 func runAddSkill(cmd *cobra.Command, s service.Service, args []string) error {
 	name := positionalInput(args, 0)
 	sourcePath := positionalInput(args, 1)
