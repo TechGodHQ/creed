@@ -116,10 +116,19 @@ func run(args []string) error {
 	if err != nil {
 		return err
 	}
+	// CLIOnly methods (e.g. blocking Watch) only generate a CLI surface.
+	// They produce a CLI command, a CLI handler, and an operation
+	// descriptor (which the CLI wrapper depends on), but they do NOT
+	// produce MCP or HTTP handlers because those surfaces assume
+	// request/response semantics.
+	requestResponseMethods := filterRequestResponseMethods(methods)
 	for _, method := range methods {
 		name := snakeCase(method.Name)
 		if err := writeGeneratedFile(outCLI, name, method, "CLI", dryRun); err != nil {
 			return err
+		}
+		if isCLIOnlyMethod(method.Name) {
+			continue
 		}
 		if err := writeGeneratedFile(outMCP, name, method, "MCP", dryRun); err != nil {
 			return err
@@ -134,19 +143,44 @@ func run(args []string) error {
 	if err := writeCLIRegistryFile(outCLI, methods, dryRun); err != nil {
 		return err
 	}
-	if err := writeMCPRegistryFile(outMCP, methods, dryRun); err != nil {
+	if err := writeMCPRegistryFile(outMCP, requestResponseMethods, dryRun); err != nil {
 		return err
 	}
-	if err := writeMCPHandlersFile(outMCP, methods, dryRun); err != nil {
+	if err := writeMCPHandlersFile(outMCP, requestResponseMethods, dryRun); err != nil {
 		return err
 	}
 	if err := writeOperationDescriptorFile(outOps, methods, dryRun); err != nil {
 		return err
 	}
-	if err := writeHTTPHandlersFile(outHTTP, methods, dryRun); err != nil {
+	if err := writeHTTPHandlersFile(outHTTP, requestResponseMethods, dryRun); err != nil {
 		return err
 	}
 	return nil
+}
+
+// isCLIOnlyMethod reports whether a method should only generate a CLI
+// surface. Such methods typically have blocking semantics (e.g. Watch)
+// that do not fit request/response surfaces like MCP or HTTP.
+func isCLIOnlyMethod(methodName string) bool {
+	switch methodName {
+	case "Watch":
+		return true
+	default:
+		return false
+	}
+}
+
+// filterRequestResponseMethods returns only methods that participate in
+// request/response surface generation (MCP, HTTP, operation descriptors).
+func filterRequestResponseMethods(methods []serviceMethod) []serviceMethod {
+	out := make([]serviceMethod, 0, len(methods))
+	for _, method := range methods {
+		if isCLIOnlyMethod(method.Name) {
+			continue
+		}
+		out = append(out, method)
+	}
+	return out
 }
 
 func serviceMethods(path string) ([]serviceMethod, error) {
@@ -342,6 +376,12 @@ func embeddedFieldName(expr ast.Expr) string {
 func validateServiceMethods(methods []serviceMethod, structs map[string]structInfo) error {
 	var problems []string
 	for _, method := range methods {
+		// CLIOnly methods (e.g. Watch) are allowed to use unsupported
+		// generated input shapes for request/response surfaces because
+		// they only generate a CLI wrapper, which is hand-written.
+		if isCLIOnlyMethod(method.Name) {
+			continue
+		}
 		for _, param := range method.Params {
 			switch param.Kind {
 			case "context", "primitive":
@@ -696,8 +736,14 @@ func operationDescriptorContent(methods []serviceMethod) (string, error) {
 		fmt.Fprintf(&ops, "		OperationName: %s,\n", strconv.Quote(operationName))
 		fmt.Fprintf(&ops, "		Description: %s,\n", strconv.Quote(doc))
 		fmt.Fprintf(&ops, "		CLIName: %s,\n", strconv.Quote(cliCommandName(method.Name, operationName)))
-		fmt.Fprintf(&ops, "		MCPName: %s,\n", strconv.Quote(operationName))
-		fmt.Fprintf(&ops, "		HTTPRoute: %s,\n", strconv.Quote("/v1/operations/"+operationName))
+		mcpName := operationName
+		httpRoute := "/v1/operations/" + operationName
+		if isCLIOnlyMethod(method.Name) {
+			mcpName = ""
+			httpRoute = ""
+		}
+		fmt.Fprintf(&ops, "		MCPName: %s,\n", strconv.Quote(mcpName))
+		fmt.Fprintf(&ops, "		HTTPRoute: %s,\n", strconv.Quote(httpRoute))
 		fmt.Fprintf(&ops, "		Inputs: []InputDescriptor{%s},\n", inputDescriptors(operationInputs(method)))
 		fmt.Fprintf(&ops, "		Outputs: []OutputDescriptor{%s},\n", outputDescriptors(method.Results))
 		fmt.Fprintf(&ops, "	},\n")
@@ -849,6 +895,8 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 		fmt.Fprintf(&b, "\t\tif dryRun {\n\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s: %%d written, %%d would_write, %%d skipped, %%d failed\\n\", targetResult.Target, targetResult.FilesWritten, targetResult.FilesWouldWrite, targetResult.FilesSkipped, targetResult.FilesFailed)\n\t\t\tfor _, file := range targetResult.Files {\n\t\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"  %%s %%s\\n\", file.Status, file.Path)\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n")
 		fmt.Fprintf(&b, "\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s: %%d written, %%d skipped, %%d failed\\n\", targetResult.Target, targetResult.FilesWritten, targetResult.FilesSkipped, targetResult.FilesFailed)\n\t}\n")
 		fmt.Fprintf(&b, "\tif result.HasErrors() {\n\t\treturn fmt.Errorf(\"sync completed with errors\")\n\t}\n\treturn nil\n}\n\n")
+	case "Watch":
+		fmt.Fprintf(&b, "\treturn runWatchCommand(cmd, s, target, quiet, force, debounce)\n}\n\n")
 	case "AddSkill":
 		fmt.Fprintf(&b, "\tif err := s.AddSkill(%s); err != nil {\n\t\treturn err\n\t}\n", callArgs)
 		fmt.Fprintf(&b, "\tfmt.Fprintf(cmd.OutOrStdout(), \"Registered skill %%s\\n\", name)\n\treturn nil\n}\n\n")
@@ -910,6 +958,14 @@ func cliCallArgs(method serviceMethod, inputs []methodParam) (string, error) {
 		inputByName[input.Name] = input
 	}
 	for _, param := range method.Params {
+		// For CLIOnly methods like Watch, non-context params that are
+		// not represented in operationInputs (e.g. callback func types)
+		// are wired by the hand-written CLI handler, not by the generator.
+		if isCLIOnlyMethod(method.Name) {
+			if _, matched := inputByName[param.Name]; !matched && param.Kind != "context" {
+				continue
+			}
+		}
 		switch param.Kind {
 		case "context":
 			args = append(args, "cmd.Context()")
@@ -1269,6 +1325,13 @@ func operationInputs(method serviceMethod) []methodParam {
 			{Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Show files that would be emitted without writing."},
 			{Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Rewrite files even when content is unchanged."},
 		}
+	case "Watch":
+		return []methodParam{
+			{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", CLIKind: "flag", Help: "Sync only the named target on each change."},
+			{Name: "quiet", ExternalName: "quiet", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Suppress per-sync output; report only errors."},
+			{Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Rewrite files on each sync even when unchanged."},
+			{Name: "debounce", ExternalName: "debounce", Type: "string", Kind: "primitive", CLIKind: "flag", Help: "Debounce window (e.g. 500ms, 1s). Defaults to 500ms."},
+		}
 	case "AddSkill":
 		return []methodParam{
 			{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Skill name."},
@@ -1361,13 +1424,20 @@ func cliRunner(methodName string) string {
 const cliRuntimeSource = `package gen
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
+	"github.com/techgodhq/creed/internal/usecase"
 )
 
 type commandRunner func(*cobra.Command, service.Service, []string) error
@@ -1467,6 +1537,66 @@ func boolFlag(cmd *cobra.Command, externalName string) (bool, error) {
 		return false, fmt.Errorf("failed to read --%s flag: %w", flagName, err)
 	}
 	return value, nil
+}
+
+// parseDebounce parses a human-friendly duration string like "500ms" or
+// "1s" into a time.Duration. An empty string returns zero so the watch
+// engine falls back to its default debounce window.
+func parseDebounce(raw string) (time.Duration, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid --debounce %q: %w", raw, err)
+	}
+	return d, nil
+}
+
+// runWatchCommand turns the parsed CLI flags into a WatchOptions, wires
+// up a stdout sink, installs signal handlers for Ctrl-C, and blocks on
+// service.Service.Watch. It is the runtime companion to the generated
+// runWatch handler; the split keeps imports for os/signal/syscall/time
+// in the generated runtime, not in the generated handler file.
+func runWatchCommand(cmd *cobra.Command, s service.Service, target string, quiet, force bool, debounceRaw string) error {
+	debounce, err := parseDebounce(debounceRaw)
+	if err != nil {
+		return err
+	}
+	opts := usecase.WatchOptions{Target: target, Quiet: quiet, Force: force, Debounce: debounce}
+	out := cmd.OutOrStdout()
+	sink := func(summary usecase.WatchSummary) {
+		if summary.Err != nil {
+			fmt.Fprintf(out, "watch sync error: %v\n", summary.Err)
+			return
+		}
+		if quiet || summary.Result == nil {
+			return
+		}
+		for _, tr := range summary.Result.Targets {
+			if tr.Error != nil {
+				fmt.Fprintf(out, "[%s] %s: error: %v\n", summary.TriggeredAt.Format(time.RFC3339), tr.Target, tr.Error)
+				continue
+			}
+			fmt.Fprintf(out, "[%s] %s: %d written, %d skipped, %d failed\n",
+				summary.TriggeredAt.Format(time.RFC3339),
+				tr.Target,
+				tr.FilesWritten,
+				tr.FilesSkipped,
+				tr.FilesFailed,
+			)
+		}
+	}
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Fprintf(out, "watching .creed/ for changes (debounce %s, target %q)\n", usecase.EffectiveDebounce(debounce), target)
+	if err := s.Watch(ctx, opts, sink); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }
 `
 

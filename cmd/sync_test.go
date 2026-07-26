@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 func TestSyncCommandDryRunSummaryIncludesWouldWriteCount(t *testing.T) {
@@ -37,7 +38,7 @@ func TestInitCommandCreatesProjectScaffold(t *testing.T) {
 }
 
 func TestGeneratedCommandsAreRegisteredWithoutConflictingHandwrittenCommands(t *testing.T) {
-	for _, name := range []string{"init", "sync", "add-skill", "remove-skill", "list-skills", "list-targets", "enable-target", "disable-target", "pull", "push"} {
+	for _, name := range []string{"init", "sync", "add-skill", "remove-skill", "list-skills", "list-targets", "enable-target", "disable-target", "pull", "push", "watch"} {
 		matches := 0
 		for _, command := range rootCmd.Commands() {
 			if command.Name() == name {
@@ -71,6 +72,91 @@ func TestGeneratedListTargetsCommandDelegatesToService(t *testing.T) {
 		if !strings.Contains(output, want) {
 			t.Fatalf("list-targets should expose stable output descriptors %q; output:\n%s", want, output)
 		}
+	}
+}
+
+// TestWatchCommandSyncsOnSourceChange drives the generated `creed watch`
+// command end-to-end: it starts the watcher, mutates a canonical source
+// file, and confirms that a sync ran (the emitted CLAUDE.md picks up the
+// change). It then cancels the watch via SIGINT to confirm clean exit.
+func TestWatchCommandSyncsOnSourceChange(t *testing.T) {
+	if testing.Short() {
+		t.Skip("watch test exercises real fsnotify and is slow-path")
+	}
+	projectDir := t.TempDir()
+	writeTestCreedProject(t, projectDir)
+
+	// Run the watch command in a goroutine; it blocks until ctx cancel.
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("getwd: %v", err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatalf("chdir: %v", err)
+	}
+	defer os.Chdir(oldWd)
+
+	// Use a mutex-guarded writer so the test goroutine can safely read
+	// output while the watch goroutine is still appending to it.
+	safeOut := newSafeBuffer()
+	rootCmd.SetOut(safeOut)
+	rootCmd.SetErr(safeOut)
+	rootCmd.SetArgs([]string{"watch", "--target", "claude", "--debounce", "50ms"})
+	defer func() {
+		rootCmd.SetOut(os.Stdout)
+		rootCmd.SetErr(os.Stderr)
+		rootCmd.SetArgs(nil)
+	}()
+
+	watchErr := make(chan error, 1)
+	go func() {
+		watchErr <- rootCmd.Execute()
+	}()
+
+	// Wait for the watcher startup banner so we know fsnotify is live.
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if strings.Contains(safeOut.String(), "watching .creed/") {
+			break
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if !strings.Contains(safeOut.String(), "watching .creed/") {
+		t.Fatalf("watch command did not announce startup; output:\n%s", safeOut.String())
+	}
+
+	// Mutate a canonical source file.
+	configPath := filepath.Join(projectDir, ".creed", "config", "project.md")
+	if err := os.WriteFile(configPath, []byte("# Project\n\nWatch-triggered update.\n"), 0o644); err != nil {
+		t.Fatalf("rewrite project.md: %v", err)
+	}
+
+	// Wait for the sync to land on disk via the emitted CLAUDE.md.
+	deadline = time.Now().Add(3 * time.Second)
+	synced := false
+	for time.Now().Before(deadline) {
+		data, err := os.ReadFile(filepath.Join(projectDir, "CLAUDE.md"))
+		if err == nil && strings.Contains(string(data), "Watch-triggered update.") {
+			synced = true
+			break
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if !synced {
+		t.Fatalf("watch did not sync the source change to CLAUDE.md; output:\n%s", safeOut.String())
+	}
+
+	// Cancel via SIGINT to confirm clean exit.
+	proc, err := os.FindProcess(os.Getpid())
+	if err != nil {
+		t.Fatalf("find process: %v", err)
+	}
+	_ = proc.Signal(os.Interrupt)
+
+	select {
+	case <-watchErr:
+	case <-time.After(3 * time.Second):
+		t.Fatal("watch command did not exit within 3s of SIGINT")
 	}
 }
 

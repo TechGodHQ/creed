@@ -134,6 +134,16 @@ var Operations = []OperationDescriptor{
 		Inputs:        []InputDescriptor{{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", Required: false, CLIKind: "arg", Help: "Optional git remote URL override."}},
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "error"}},
 	},
+	{
+		MethodName:    "Watch",
+		OperationName: "watch",
+		Description:   "Watch registers a Watcher on the project's canonical .creed/\nsources and runs a debounced sync for each stable change until\nctx is cancelled. This is a blocking operation; callers must\nprovide a cancellable context.",
+		CLIName:       "watch",
+		MCPName:       "",
+		HTTPRoute:     "",
+		Inputs:        []InputDescriptor{{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Sync only the named target on each change."}, {Name: "quiet", ExternalName: "quiet", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Suppress per-sync output; report only errors."}, {Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Rewrite files on each sync even when unchanged."}, {Name: "debounce", ExternalName: "debounce", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Debounce window (e.g. 500ms, 1s). Defaults to 500ms."}},
+		Outputs:       []OutputDescriptor{{Name: "result1", Type: "error"}},
+	},
 }
 
 // ByOperationName returns the descriptor for operationName, if generated.

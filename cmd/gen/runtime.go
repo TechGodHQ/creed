@@ -1,13 +1,20 @@
 package gen
 
 import (
+	"context"
+	"errors"
 	"fmt"
+	"os"
+	"os/signal"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/spf13/cobra"
 
 	opsgen "github.com/techgodhq/creed/internal/ops/gen"
 	"github.com/techgodhq/creed/internal/service"
+	"github.com/techgodhq/creed/internal/usecase"
 )
 
 type commandRunner func(*cobra.Command, service.Service, []string) error
@@ -107,4 +114,64 @@ func boolFlag(cmd *cobra.Command, externalName string) (bool, error) {
 		return false, fmt.Errorf("failed to read --%s flag: %w", flagName, err)
 	}
 	return value, nil
+}
+
+// parseDebounce parses a human-friendly duration string like "500ms" or
+// "1s" into a time.Duration. An empty string returns zero so the watch
+// engine falls back to its default debounce window.
+func parseDebounce(raw string) (time.Duration, error) {
+	if raw == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(raw)
+	if err != nil {
+		return 0, fmt.Errorf("invalid --debounce %q: %w", raw, err)
+	}
+	return d, nil
+}
+
+// runWatchCommand turns the parsed CLI flags into a WatchOptions, wires
+// up a stdout sink, installs signal handlers for Ctrl-C, and blocks on
+// service.Service.Watch. It is the runtime companion to the generated
+// runWatch handler; the split keeps imports for os/signal/syscall/time
+// in the generated runtime, not in the generated handler file.
+func runWatchCommand(cmd *cobra.Command, s service.Service, target string, quiet, force bool, debounceRaw string) error {
+	debounce, err := parseDebounce(debounceRaw)
+	if err != nil {
+		return err
+	}
+	opts := usecase.WatchOptions{Target: target, Quiet: quiet, Force: force, Debounce: debounce}
+	out := cmd.OutOrStdout()
+	sink := func(summary usecase.WatchSummary) {
+		if summary.Err != nil {
+			fmt.Fprintf(out, "watch sync error: %v\n", summary.Err)
+			return
+		}
+		if quiet || summary.Result == nil {
+			return
+		}
+		for _, tr := range summary.Result.Targets {
+			if tr.Error != nil {
+				fmt.Fprintf(out, "[%s] %s: error: %v\n", summary.TriggeredAt.Format(time.RFC3339), tr.Target, tr.Error)
+				continue
+			}
+			fmt.Fprintf(out, "[%s] %s: %d written, %d skipped, %d failed\n",
+				summary.TriggeredAt.Format(time.RFC3339),
+				tr.Target,
+				tr.FilesWritten,
+				tr.FilesSkipped,
+				tr.FilesFailed,
+			)
+		}
+	}
+	ctx, stop := signal.NotifyContext(cmd.Context(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	fmt.Fprintf(out, "watching .creed/ for changes (debounce %s, target %q)\n", usecase.EffectiveDebounce(debounce), target)
+	if err := s.Watch(ctx, opts, sink); err != nil {
+		if errors.Is(err, context.Canceled) {
+			return nil
+		}
+		return err
+	}
+	return nil
 }

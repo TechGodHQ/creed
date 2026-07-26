@@ -41,6 +41,19 @@ func TestRunGeneratesCLIAndMCPFilesForServiceMethods(t *testing.T) {
 		assertFileExists(t, filepath.Join(outCLI, method+".go"))
 		assertFileExists(t, filepath.Join(outMCP, method+".go"))
 	}
+	// CLIOnly methods: watch must produce a CLI wrapper but NOT an MCP tool.
+	assertFileExists(t, filepath.Join(outCLI, "watch.go"))
+	if _, err := os.Stat(filepath.Join(outMCP, "watch.go")); err == nil {
+		t.Fatalf("CLIOnly method watch should NOT generate an MCP tool, but internal/mcp/gen/watch.go exists")
+	}
+	// Operation descriptor for watch must exist (the CLI wrapper depends on it).
+	opsBytes, err := os.ReadFile(filepath.Join(outOps, "operations.go"))
+	if err != nil {
+		t.Fatalf("read generated operation descriptors: %v", err)
+	}
+	if !strings.Contains(string(opsBytes), `MethodName:    "Watch"`) {
+		t.Fatalf("operation descriptors missing Watch entry; the CLI wrapper will panic at init")
+	}
 	assertFileExists(t, filepath.Join(outHTTP, "handlers.go"))
 	cliSync, err := os.ReadFile(filepath.Join(outCLI, "sync.go"))
 	if err != nil {
@@ -500,10 +513,37 @@ require (
 	writeFixtureFile(t, filepath.Join(fixtureRoot, "go.sum"), string(goSum))
 	writeFixtureFile(t, filepath.Join(fixtureRoot, "internal", "usecase", "usecase.go"), `package usecase
 
+import "time"
+
 type SyncOptions struct {
 	Target string `+"`json:\"target,omitempty\"`"+`
 	DryRun bool   `+"`json:\"dry_run,omitempty\"`"+`
 	Force  bool   `+"`json:\"force,omitempty\"`"+`
+}
+
+type WatchOptions struct {
+	Target   string        `+"`json:\"target,omitempty\"`"+`
+	Quiet    bool          `+"`json:\"quiet,omitempty\"`"+`
+	Force    bool          `+"`json:\"force,omitempty\"`"+`
+	Debounce time.Duration `+"`json:\"debounce,omitempty\"`"+`
+}
+
+type WatchSink func(WatchSummary)
+
+type WatchSummary struct {
+	TriggeredAt time.Time
+	Sources     []string
+	Result      *SyncResult
+	Err         error
+}
+
+// EffectiveDebounce mirrors the real usecase.EffectiveDebounce signature
+// so the generated runtime helper compiles against this stub package.
+func EffectiveDebounce(d time.Duration) time.Duration {
+	if d <= 0 {
+		return 500 * time.Millisecond
+	}
+	return d
 }
 
 type TargetResult struct {
@@ -513,6 +553,7 @@ type TargetResult struct {
 	FilesSkipped    int
 	FilesFailed     int
 	Files           []FileResult
+	Error           error
 }
 
 type FileResult struct {
@@ -573,6 +614,8 @@ type Service interface {
 	ListTargets(ctx context.Context) ([]domain.TargetInfo, error)
 	// Ping proves a new DTO-backed operation is generated across all surfaces.
 	Ping(ctx context.Context, req PingRequest) (PingResult, error)
+	// Watch is a blocking CLI-only operation; it must not be generated into MCP/HTTP.
+	Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error
 }
 `)
 
@@ -685,6 +728,10 @@ func (f *fakeService) Ping(ctx context.Context, req service.PingRequest) (servic
 		f.httpMessage, f.httpLoud = req.Message, req.Loud
 	}
 	return service.PingResult{Message: req.Message, Loud: req.Loud}, nil
+}
+
+func (f *fakeService) Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error {
+	return nil
 }
 
 func mcpToolHandler(tools []mcpgen.GeneratedTool, name string) (mcpgen.ToolHandler, bool) {

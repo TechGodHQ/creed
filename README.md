@@ -57,6 +57,15 @@ creed sync --target claude --dry-run
 
 # Clean and rewrite emitted files for a target
 creed sync --target claude --force
+
+# Watch .creed/ and re-sync on every save (Ctrl-C to stop)
+creed watch
+
+# Watch only one target, with a custom debounce window
+creed watch --target claude --debounce 250ms
+
+# Quiet mode: report only errors
+creed watch --quiet
 ```
 
 `creed init` is non-destructive: rerunning it creates missing starter files but
