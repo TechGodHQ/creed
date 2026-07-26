@@ -465,6 +465,40 @@ func TestValidateAcceptsScaffoldedProject(t *testing.T) {
 	}
 }
 
+func TestValidateRejectsUnknownSchemaFieldsAndMissingVersion(t *testing.T) {
+	for name, manifest := range map[string]string{
+		"unknown field": `version: 1
+source:
+  type: local
+  unexpected: value
+targets: []
+unknown: value
+`,
+		"missing version": `source:
+  type: local
+targets: []
+`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			root := t.TempDir()
+			creedDir := filepath.Join(root, ".creed")
+			if err := os.MkdirAll(creedDir, 0755); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.WriteFile(filepath.Join(creedDir, "manifest.yaml"), []byte(manifest), 0644); err != nil {
+				t.Fatal(err)
+			}
+			result, err := New(root).Validate(context.Background())
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if result.Valid || len(result.Errors) == 0 {
+				t.Fatalf("Validate() = %#v, want schema error", result)
+			}
+		})
+	}
+}
+
 func hasDiagnostic(diagnostics []ValidationDiagnostic, code string) bool {
 	for _, diagnostic := range diagnostics {
 		if diagnostic.Code == code {
