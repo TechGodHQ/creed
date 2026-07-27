@@ -26,4 +26,5 @@ var ToolSpecs = []ToolSpec{
 	{MethodName: "DisableTarget", Name: DisableTargetToolName, Description: DisableTargetToolDescription, ParamNames: DisableTargetToolParams},
 	{MethodName: "Pull", Name: PullToolName, Description: PullToolDescription, ParamNames: PullToolParams},
 	{MethodName: "Push", Name: PushToolName, Description: PushToolDescription, ParamNames: PushToolParams},
+	{MethodName: "Doctor", Name: DoctorToolName, Description: DoctorToolDescription, ParamNames: DoctorToolParams},
 }

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -582,4 +583,214 @@ func mustRead(t *testing.T, path string) string {
 		t.Fatal(err)
 	}
 	return string(data)
+}
+
+func TestDoctorHealthyProject(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	report, err := svc.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+
+	if !report.ManifestOK {
+		t.Errorf("ManifestOK = false, want true")
+	}
+	if !report.SourceDirOK {
+		t.Errorf("SourceDirOK = false, want true")
+	}
+	if !report.Validation.Valid {
+		t.Errorf("Validation.Valid = false, want true; errors = %#v", report.Validation.Errors)
+	}
+	if report.HasErrors() {
+		t.Errorf("HasErrors() = true, want false; checks = %#v", report.Checks)
+	}
+	if !filepath.IsAbs(report.Root) {
+		t.Errorf("Root = %q, want absolute path", report.Root)
+	}
+	if len(report.Targets) == 0 {
+		t.Errorf("Targets is empty, want configured targets")
+	}
+
+	enabled := map[string]bool{}
+	for _, target := range report.Targets {
+		enabled[target.Name] = target.Enabled
+	}
+	for _, name := range []string{"claude", "codex", "cursor"} {
+		if !enabled[name] {
+			t.Errorf("target %s should be enabled by default", name)
+		}
+	}
+
+	if report.GitAvailable && report.GitPath == "" {
+		t.Errorf("GitAvailable = true but GitPath is empty")
+	}
+}
+
+func TestDoctorMissingCreedDir(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+
+	report, err := svc.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+
+	if report.SourceDirOK {
+		t.Errorf("SourceDirOK = true, want false for missing .creed")
+	}
+	if report.ManifestOK {
+		t.Errorf("ManifestOK = true, want false for missing manifest")
+	}
+	if !report.HasErrors() {
+		t.Errorf("HasErrors() = false, want true for missing setup; checks = %#v", report.Checks)
+	}
+
+	if !hasDoctorCheck(report.Checks, "error", "missing_source_dir") {
+		t.Errorf("missing_source_dir error not found; checks = %#v", report.Checks)
+	}
+	if !hasDoctorCheck(report.Checks, "error", "missing_manifest") {
+		t.Errorf("missing_manifest error not found; checks = %#v", report.Checks)
+	}
+}
+
+func TestDoctorInvalidManifestReportsValidationErrors(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	badManifest := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: nonexistent
+    enabled: true
+    output_dir: .
+skills:
+  - name: review
+    path: skills/review.md
+config:
+  - name: project
+    path: config/project.md
+`
+	if err := os.WriteFile(filepath.Join(root, ".creed", "manifest.yaml"), []byte(badManifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := svc.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+
+	if report.Validation.Valid {
+		t.Errorf("Validation.Valid = true, want false for bad manifest")
+	}
+	if !report.HasErrors() {
+		t.Errorf("HasErrors() = false, want true")
+	}
+}
+
+func TestDoctorNeverExposesSensitiveRemote(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root, WithGitToken("secret-token-do-not-leak"))
+	ctx := context.Background()
+
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatalf("Init() error = %v", err)
+	}
+
+	// Configure git source with a remote containing credentials in the URL.
+	remote := "https://ci-user:hunter2@git.example.com/repo.git"
+	manifest := fmt.Sprintf(`version: 1
+source:
+  type: git
+  path: .creed
+  remote: %s
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: review
+    path: skills/review.md
+config:
+  - name: project
+    path: config/project.md
+`, remote)
+	if err := os.WriteFile(filepath.Join(root, ".creed", "manifest.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := svc.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+
+	// The token passed via WithGitToken must never appear anywhere.
+	serialized := fmt.Sprintf("%#v", report)
+	if strings.Contains(serialized, "secret-token-do-not-leak") {
+		t.Errorf("report serialization leaked git token")
+	}
+
+	// The password embedded in the remote URL must be redacted.
+	if strings.Contains(report.SourceRemote, "hunter2") {
+		t.Errorf("SourceRemote leaked URL password: %s", report.SourceRemote)
+	}
+	// The username should be preserved (safe to display).
+	if !strings.Contains(report.SourceRemote, "ci-user") {
+		t.Errorf("SourceRemote should preserve username; got: %s", report.SourceRemote)
+	}
+	// The host and path should be intact.
+	if !strings.Contains(report.SourceRemote, "git.example.com/repo.git") {
+		t.Errorf("SourceRemote should preserve host/path; got: %s", report.SourceRemote)
+	}
+
+	for _, check := range report.Checks {
+		if strings.Contains(check.Message, "secret-token-do-not-leak") || strings.Contains(check.Detail, "secret-token-do-not-leak") {
+			t.Errorf("check leaked git token: %+v", check)
+		}
+		if strings.Contains(check.Message, "hunter2") || strings.Contains(check.Detail, "hunter2") {
+			t.Errorf("check leaked URL password: %+v", check)
+		}
+	}
+}
+
+func TestDoctorCreedPathIsFileNotDir(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, ".creed"), []byte("not a dir"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	svc := New(root)
+
+	report, err := svc.Doctor(context.Background())
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	if report.SourceDirOK {
+		t.Errorf("SourceDirOK = true, want false when .creed is not a directory")
+	}
+	if !hasDoctorCheck(report.Checks, "error", "source_not_directory") {
+		t.Errorf("source_not_directory error not found; checks = %#v", report.Checks)
+	}
+}
+
+func hasDoctorCheck(checks []DoctorCheck, kind, code string) bool {
+	for _, c := range checks {
+		if c.Kind == kind && c.Code == code {
+			return true
+		}
+	}
+	return false
 }
