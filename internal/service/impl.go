@@ -123,6 +123,12 @@ func (s *Implementation) Sync(ctx context.Context, opts usecase.SyncOptions) (*u
 	return engine.Sync(ctx, opts)
 }
 
+// Diff compares rendered local Creed context with its target outputs.
+func (s *Implementation) Diff(ctx context.Context, opts usecase.DiffOptions) (*usecase.DiffResult, error) {
+	engine := usecase.NewSyncEngine(localfs.NewSource(s.root), localfs.NewEmitter(s.root))
+	return engine.Diff(ctx, opts)
+}
+
 // AddSkill registers a skill path in the manifest.
 func (s *Implementation) AddSkill(ctx context.Context, name, sourcePath string) error {
 	if err := ctx.Err(); err != nil {

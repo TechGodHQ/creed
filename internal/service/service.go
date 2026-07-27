@@ -23,6 +23,8 @@ type Service interface {
 	// writing outputs. Validation errors are returned in the result so generated
 	// CLI, MCP, and HTTP callers receive the same structured diagnostics.
 	Validate(ctx context.Context) (ValidationResult, error)
+	// Diff previews line-level changes between rendered target output and disk.
+	Diff(ctx context.Context, opts usecase.DiffOptions) (*usecase.DiffResult, error)
 	// AddSkill registers a skill file in the manifest.
 	AddSkill(ctx context.Context, name, sourcePath string) error
 	// RemoveSkill removes a skill registration from the manifest.

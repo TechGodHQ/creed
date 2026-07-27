@@ -21,3 +21,10 @@ type SyncOptions struct {
 	// before emitting so all files are rewritten fresh.
 	Force bool `json:"force,omitempty"`
 }
+
+// DiffOptions controls the behavior of a diff operation.
+type DiffOptions struct {
+	// Target filters the diff to one manifest target. When empty, all enabled
+	// targets are compared; a named disabled target is still permitted.
+	Target string `json:"target,omitempty"`
+}

@@ -65,6 +65,16 @@ var Operations = []OperationDescriptor{
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "ValidationResult"}, {Name: "result2", Type: "error"}},
 	},
 	{
+		MethodName:    "Diff",
+		OperationName: "diff",
+		Description:   "Diff previews line-level changes between rendered target output and disk.",
+		CLIName:       "diff",
+		MCPName:       "diff",
+		HTTPRoute:     "/v1/operations/diff",
+		Inputs:        []InputDescriptor{{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: ""}},
+		Outputs:       []OutputDescriptor{{Name: "result1", Type: "*usecase.DiffResult"}, {Name: "result2", Type: "error"}},
+	},
+	{
 		MethodName:    "AddSkill",
 		OperationName: "add_skill",
 		Description:   "AddSkill registers a skill file in the manifest.",
