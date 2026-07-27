@@ -50,4 +50,10 @@ type Service interface {
 	// ctx is cancelled. This is a blocking operation; callers must
 	// provide a cancellable context.
 	Watch(ctx context.Context, opts usecase.WatchOptions, sink usecase.WatchSink) error
+	// Doctor produces a diagnostic report covering the project root,
+	// manifest and source presence, validation summary, configured
+	// targets, and git availability. It is non-mutating and never
+	// exposes sensitive values. Generated CLI, MCP, and HTTP callers
+	// receive the same structured report.
+	Doctor(ctx context.Context) (DoctorReport, error)
 }

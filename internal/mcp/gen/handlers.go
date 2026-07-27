@@ -41,6 +41,7 @@ func GeneratedTools(s service.Service) []GeneratedTool {
 		{Spec: DisableTargetToolSpec(), Tool: DisableTargetMCPTool(), Handler: DisableTargetMCPHandler(s)},
 		{Spec: PullToolSpec(), Tool: PullMCPTool(), Handler: PullMCPHandler(s)},
 		{Spec: PushToolSpec(), Tool: PushMCPTool(), Handler: PushMCPHandler(s)},
+		{Spec: DoctorToolSpec(), Tool: DoctorMCPTool(), Handler: DoctorMCPHandler(s)},
 	}
 }
 
@@ -471,6 +472,31 @@ func PushMCPHandler(s service.Service) ToolHandler {
 			return nil, err
 		}
 		return okResponse{OK: true}, nil
+	}
+}
+
+// DoctorToolSpec returns generated MCP metadata for service.Service.Doctor.
+func DoctorToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "Doctor", Name: DoctorToolName, Description: DoctorToolDescription, ParamNames: []string{}}
+}
+
+// DoctorMCPTool returns the generated MCP tool definition for service.Service.Doctor.
+func DoctorMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(DoctorToolDescription)}
+	return mcplib.NewTool(DoctorToolName, options...)
+}
+
+// DoctorMCPHandler returns the generated MCP handler for service.Service.Doctor.
+func DoctorMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		if err := decodePayload(payload, &struct{}{}); err != nil {
+			return nil, err
+		}
+		result, err := s.Doctor(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 }
 

@@ -856,7 +856,14 @@ import (
 	"github.com/techgodhq/creed/internal/usecase"
 )
 
-%s`, handlers.String()))
+%s
+
+func boolMark(b bool) string {
+	if b {
+		return "present"
+	}
+	return "missing"
+}`, handlers.String()))
 }
 
 func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, error) {
@@ -901,6 +908,14 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 		fmt.Fprintf(&b, "	for _, diagnostic := range result.Errors {\n		fmt.Fprintf(cmd.OutOrStdout(), \"ERROR %%s: %%s\\n\", diagnostic.Code, diagnostic.Message)\n	}\n")
 		fmt.Fprintf(&b, "	for _, diagnostic := range result.Warnings {\n		fmt.Fprintf(cmd.OutOrStdout(), \"WARNING %%s: %%s\\n\", diagnostic.Code, diagnostic.Message)\n	}\n")
 		fmt.Fprintf(&b, "	if !result.Valid {\n		return fmt.Errorf(\"validation failed\")\n	}\n	fmt.Fprintln(cmd.OutOrStdout(), \"Validation passed\")\n	return nil\n}\n\n")
+	case "Doctor":
+		fmt.Fprintf(&b, "	result, err := s.Doctor(%s)\n", callArgs)
+		fmt.Fprintf(&b, "	if err != nil {\n		return err\n	}\n")
+		fmt.Fprintf(&b, "	fmt.Fprintf(cmd.OutOrStdout(), \"Project root: %%s\\n\", result.Root)\n")
+		fmt.Fprintf(&b, "	fmt.Fprintf(cmd.OutOrStdout(), \"Source: %%s, Manifest: %%s\\n\", boolMark(result.SourceDirOK), boolMark(result.ManifestOK))\n")
+		fmt.Fprintf(&b, "	for _, target := range result.Targets {\n		status := \"disabled\"\n		if target.Enabled {\n			status = \"enabled\"\n		}\n		fmt.Fprintf(cmd.OutOrStdout(), \"Target %%s: %%s\\n\", target.Name, status)\n	}\n")
+		fmt.Fprintf(&b, "	for _, check := range result.Checks {\n		if check.Kind == \"error\" {\n			fmt.Fprintf(cmd.OutOrStdout(), \"ERROR %%s: %%s\\n\", check.Code, check.Message)\n		}\n	}\n")
+		fmt.Fprintf(&b, "	if result.HasErrors() {\n		return fmt.Errorf(\"doctor found issues\")\n	}\n	fmt.Fprintln(cmd.OutOrStdout(), \"All checks passed\")\n	return nil\n}\n\n")
 	case "Watch":
 		fmt.Fprintf(&b, "\treturn runWatchCommand(cmd, s, target, quiet, force, debounce)\n}\n\n")
 	case "AddSkill", "AddConfig":

@@ -26,5 +26,6 @@ func Commands(s service.Service) []*cobra.Command {
 		NewPullCommand(s),
 		NewPushCommand(s),
 		NewWatchCommand(s),
+		NewDoctorCommand(s),
 	}
 }

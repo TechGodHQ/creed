@@ -184,6 +184,16 @@ var Operations = []OperationDescriptor{
 		Inputs:        []InputDescriptor{{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Sync only the named target on each change."}, {Name: "quiet", ExternalName: "quiet", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Suppress per-sync output; report only errors."}, {Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Rewrite files on each sync even when unchanged."}, {Name: "debounce", ExternalName: "debounce", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Debounce window (e.g. 500ms, 1s). Defaults to 500ms."}},
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "error"}},
 	},
+	{
+		MethodName:    "Doctor",
+		OperationName: "doctor",
+		Description:   "Doctor produces a diagnostic report covering the project root,\nmanifest and source presence, validation summary, configured\ntargets, and git availability. It is non-mutating and never\nexposes sensitive values. Generated CLI, MCP, and HTTP callers\nreceive the same structured report.",
+		CLIName:       "doctor",
+		MCPName:       "doctor",
+		HTTPRoute:     "/v1/operations/doctor",
+		Inputs:        []InputDescriptor{},
+		Outputs:       []OutputDescriptor{{Name: "result1", Type: "DoctorReport"}, {Name: "result2", Type: "error"}},
+	},
 }
 
 // ByOperationName returns the descriptor for operationName, if generated.

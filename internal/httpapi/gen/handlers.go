@@ -39,6 +39,7 @@ func GeneratedOperations(s service.Service) []GeneratedOperation {
 		{Descriptor: mustOperation("DisableTarget"), Handler: DisableTargetHTTPHandler(s)},
 		{Descriptor: mustOperation("Pull"), Handler: PullHTTPHandler(s)},
 		{Descriptor: mustOperation("Push"), Handler: PushHTTPHandler(s)},
+		{Descriptor: mustOperation("Doctor"), Handler: DoctorHTTPHandler(s)},
 	}
 }
 
@@ -301,6 +302,20 @@ func PushHTTPHandler(s service.Service) OperationHandler {
 			return nil, err
 		}
 		return nil, nil
+	}
+}
+
+// DoctorHTTPHandler returns the generated HTTP handler for service.Service.Doctor.
+func DoctorHTTPHandler(s service.Service) OperationHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		if err := decodePayload(payload, &struct{}{}); err != nil {
+			return nil, err
+		}
+		result, err := s.Doctor(ctx)
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
 	}
 }
 

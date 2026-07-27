@@ -203,3 +203,36 @@ func runWatch(cmd *cobra.Command, s service.Service, args []string) error {
 	}
 	return runWatchCommand(cmd, s, target, quiet, force, debounce)
 }
+
+func runDoctor(cmd *cobra.Command, s service.Service, args []string) error {
+	result, err := s.Doctor(cmd.Context())
+	if err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(), "Project root: %s\n", result.Root)
+	fmt.Fprintf(cmd.OutOrStdout(), "Source: %s, Manifest: %s\n", boolMark(result.SourceDirOK), boolMark(result.ManifestOK))
+	for _, target := range result.Targets {
+		status := "disabled"
+		if target.Enabled {
+			status = "enabled"
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Target %s: %s\n", target.Name, status)
+	}
+	for _, check := range result.Checks {
+		if check.Kind == "error" {
+			fmt.Fprintf(cmd.OutOrStdout(), "ERROR %s: %s\n", check.Code, check.Message)
+		}
+	}
+	if result.HasErrors() {
+		return fmt.Errorf("doctor found issues")
+	}
+	fmt.Fprintln(cmd.OutOrStdout(), "All checks passed")
+	return nil
+}
+
+func boolMark(b bool) string {
+	if b {
+		return "present"
+	}
+	return "missing"
+}
