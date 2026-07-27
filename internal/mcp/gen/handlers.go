@@ -29,6 +29,7 @@ func GeneratedTools(s service.Service) []GeneratedTool {
 	return []GeneratedTool{
 		{Spec: InitToolSpec(), Tool: InitMCPTool(), Handler: InitMCPHandler(s)},
 		{Spec: SyncToolSpec(), Tool: SyncMCPTool(), Handler: SyncMCPHandler(s)},
+		{Spec: ValidateToolSpec(), Tool: ValidateMCPTool(), Handler: ValidateMCPHandler(s)},
 		{Spec: AddSkillToolSpec(), Tool: AddSkillMCPTool(), Handler: AddSkillMCPHandler(s)},
 		{Spec: RemoveSkillToolSpec(), Tool: RemoveSkillMCPTool(), Handler: RemoveSkillMCPHandler(s)},
 		{Spec: ListSkillsToolSpec(), Tool: ListSkillsMCPTool(), Handler: ListSkillsMCPHandler(s)},
@@ -104,6 +105,31 @@ func SyncMCPHandler(s service.Service) ToolHandler {
 			return nil, err
 		}
 		result, err := s.Sync(ctx, usecase.SyncOptions{Target: req.Target, DryRun: req.DryRun, Force: req.Force})
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+// ValidateToolSpec returns generated MCP metadata for service.Service.Validate.
+func ValidateToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "Validate", Name: ValidateToolName, Description: ValidateToolDescription, ParamNames: []string{}}
+}
+
+// ValidateMCPTool returns the generated MCP tool definition for service.Service.Validate.
+func ValidateMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(ValidateToolDescription)}
+	return mcplib.NewTool(ValidateToolName, options...)
+}
+
+// ValidateMCPHandler returns the generated MCP handler for service.Service.Validate.
+func ValidateMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		if err := decodePayload(payload, &struct{}{}); err != nil {
+			return nil, err
+		}
+		result, err := s.Validate(ctx)
 		if err != nil {
 			return nil, err
 		}

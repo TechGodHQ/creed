@@ -889,12 +889,18 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 		fmt.Fprintf(&b, "\tif err := s.Init(%s); err != nil {\n\t\treturn err\n\t}\n", callArgs)
 		fmt.Fprintf(&b, "\tfmt.Fprintln(cmd.OutOrStdout(), \"Initialized creed project\")\n\treturn nil\n}\n\n")
 	case "Sync":
-		fmt.Fprintf(&b, "\tresult, err := s.Sync(%s)\n", callArgs)
-		fmt.Fprintf(&b, "\tif err != nil {\n\t\treturn err\n\t}\n")
-		fmt.Fprintf(&b, "\tfor _, targetResult := range result.Targets {\n")
-		fmt.Fprintf(&b, "\t\tif dryRun {\n\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s: %%d written, %%d would_write, %%d skipped, %%d failed\\n\", targetResult.Target, targetResult.FilesWritten, targetResult.FilesWouldWrite, targetResult.FilesSkipped, targetResult.FilesFailed)\n\t\t\tfor _, file := range targetResult.Files {\n\t\t\t\tfmt.Fprintf(cmd.OutOrStdout(), \"  %%s %%s\\n\", file.Status, file.Path)\n\t\t\t}\n\t\t\tcontinue\n\t\t}\n")
-		fmt.Fprintf(&b, "\t\tfmt.Fprintf(cmd.OutOrStdout(), \"%%s: %%d written, %%d skipped, %%d failed\\n\", targetResult.Target, targetResult.FilesWritten, targetResult.FilesSkipped, targetResult.FilesFailed)\n\t}\n")
-		fmt.Fprintf(&b, "\tif result.HasErrors() {\n\t\treturn fmt.Errorf(\"sync completed with errors\")\n\t}\n\treturn nil\n}\n\n")
+		fmt.Fprintf(&b, "	result, err := s.Sync(%s)\n", callArgs)
+		fmt.Fprintf(&b, "	if err != nil {\n		return err\n	}\n")
+		fmt.Fprintf(&b, "	for _, targetResult := range result.Targets {\n")
+		fmt.Fprintf(&b, "		if dryRun {\n			fmt.Fprintf(cmd.OutOrStdout(), \"%%s: %%d written, %%d would_write, %%d skipped, %%d failed\\n\", targetResult.Target, targetResult.FilesWritten, targetResult.FilesWouldWrite, targetResult.FilesSkipped, targetResult.FilesFailed)\n			for _, file := range targetResult.Files {\n				fmt.Fprintf(cmd.OutOrStdout(), \"  %%s %%s\\n\", file.Status, file.Path)\n			}\n			continue\n		}\n")
+		fmt.Fprintf(&b, "		fmt.Fprintf(cmd.OutOrStdout(), \"%%s: %%d written, %%d skipped, %%d failed\\n\", targetResult.Target, targetResult.FilesWritten, targetResult.FilesSkipped, targetResult.FilesFailed)\n	}\n")
+		fmt.Fprintf(&b, "	if result.HasErrors() {\n		return fmt.Errorf(\"sync completed with errors\")\n	}\n	return nil\n}\n\n")
+	case "Validate":
+		fmt.Fprintf(&b, "	result, err := s.Validate(%s)\n", callArgs)
+		fmt.Fprintf(&b, "	if err != nil {\n		return err\n	}\n")
+		fmt.Fprintf(&b, "	for _, diagnostic := range result.Errors {\n		fmt.Fprintf(cmd.OutOrStdout(), \"ERROR %%s: %%s\\n\", diagnostic.Code, diagnostic.Message)\n	}\n")
+		fmt.Fprintf(&b, "	for _, diagnostic := range result.Warnings {\n		fmt.Fprintf(cmd.OutOrStdout(), \"WARNING %%s: %%s\\n\", diagnostic.Code, diagnostic.Message)\n	}\n")
+		fmt.Fprintf(&b, "	if !result.Valid {\n		return fmt.Errorf(\"validation failed\")\n	}\n	fmt.Fprintln(cmd.OutOrStdout(), \"Validation passed\")\n	return nil\n}\n\n")
 	case "Watch":
 		fmt.Fprintf(&b, "\treturn runWatchCommand(cmd, s, target, quiet, force, debounce)\n}\n\n")
 	case "AddSkill", "AddConfig":
