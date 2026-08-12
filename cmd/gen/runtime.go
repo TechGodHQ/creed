@@ -19,6 +19,13 @@ import (
 
 type commandRunner func(*cobra.Command, service.Service, []string) error
 
+// diffExitStatus signals the conventional successful comparison-with-differences
+// exit code without printing an error diagnostic.
+type diffExitStatus struct{}
+
+func (diffExitStatus) Error() string { return "differences found" }
+func (diffExitStatus) ExitCode() int { return 1 }
+
 func mustOperation(methodName string) opsgen.OperationDescriptor {
 	operation, ok := opsgen.ByMethodName(methodName)
 	if !ok {
@@ -35,6 +42,10 @@ func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor
 		RunE: func(cmd *cobra.Command, args []string) error {
 			return runner(cmd, s, args)
 		},
+	}
+	if operation.MethodName == "Diff" {
+		cmd.SilenceErrors = true
+		cmd.SilenceUsage = true
 	}
 	for _, input := range operation.Inputs {
 		if input.CLIKind != "flag" {

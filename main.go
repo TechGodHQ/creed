@@ -3,6 +3,7 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"os"
 
@@ -11,7 +12,11 @@ import (
 
 func main() {
 	if err := cmd.Execute(); err != nil {
+		var exitCoder interface{ ExitCode() int }
+		if errors.As(err, &exitCoder) {
+			os.Exit(exitCoder.ExitCode())
+		}
 		fmt.Fprintf(os.Stderr, "creed: %v\n", err)
-		os.Exit(1)
+		os.Exit(2)
 	}
 }

@@ -73,6 +73,24 @@ func runValidate(cmd *cobra.Command, s service.Service, args []string) error {
 	return nil
 }
 
+func runDiff(cmd *cobra.Command, s service.Service, args []string) error {
+	target, err := stringFlag(cmd, "target")
+	if err != nil {
+		return err
+	}
+	result, err := s.Diff(cmd.Context(), usecase.DiffOptions{Target: target})
+	if err != nil {
+		return err
+	}
+	if diff := result.UnifiedDiff(); diff != "" {
+		fmt.Fprint(cmd.OutOrStdout(), diff)
+	}
+	if result.HasDifferences() {
+		return diffExitStatus{}
+	}
+	return nil
+}
+
 func runAddSkill(cmd *cobra.Command, s service.Service, args []string) error {
 	name := positionalInput(args, 0)
 	sourcePath := positionalInput(args, 1)
