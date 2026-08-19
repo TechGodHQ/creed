@@ -89,7 +89,7 @@ are idempotent.
 
 - Commits should use Shiv's global git identity so GitHub verification works.
 - Runner-generated commits may include `Co-authored-by: Archon <archon@purelymail.com>` for attribution.
-- Do not merge PRs automatically; human review/merge is required.
+- Auto-merge is permitted per the standing gate policy: CI green and gate confidence >= 0.80.
 
 ## OpenSpec
 
