@@ -12,9 +12,11 @@ Every AI coding tool has its own conventions:
 | Tool | Context files |
 |------|---------------|
 | Claude Code | `CLAUDE.md`, `.claude/skills/` |
+| GitHub Copilot | `.github/copilot-instructions.md` |
 | Cursor | `.cursor/rules/` |
 | Codex | `AGENTS.md` |
 | Gemini CLI | `GEMINI.md`, `.gemini/` |
+| OpenCode | `AGENTS.md`, `.opencode/agents/` |
 | Generic agents | `AGENTS.md` |
 | Windsurf | `.windsurfrules` |
 | Aider | `.aider.conf.yml`, `CONVENTIONS.md` |
@@ -26,6 +28,12 @@ directory the canonical source and emits target-specific files from it.
 
 ```bash
 go install github.com/techgodhq/creed@latest
+```
+
+For a pinned release:
+
+```bash
+go install github.com/techgodhq/creed@v0.3.0
 ```
 
 From a checkout:
@@ -66,6 +74,26 @@ creed watch --target claude --debounce 250ms
 
 # Quiet mode: report only errors
 creed watch --quiet
+
+# Check the manifest and referenced source files without writing outputs
+creed validate
+
+# Diagnose the project setup: root, manifest, targets, git availability
+creed doctor
+
+# Preview line-level changes between rendered output and disk
+creed diff
+creed diff --target claude
+
+# Manage manifest registrations without hand-editing YAML
+creed add-skill review skills/review.md
+creed remove-skill review
+creed list-skills
+creed add-config project config/project.md
+creed remove-config project
+creed list-configs
+creed enable-target gemini
+creed disable-target aider
 ```
 
 `creed init` is non-destructive: rerunning it creates missing starter files but
@@ -81,6 +109,8 @@ By default, `creed init` creates:
 The generated manifest enables `claude`, `codex`, and `cursor` with
 `output_dir: .`. Less universal targets (`agents`, `aider`, `gemini`, and
 `windsurf`) are listed but disabled until you opt in.
+Newer targets (`copilot`, `opencode`) are scaffolded disabled as well and can
+be enabled with `creed enable-target`.
 
 ## Manifest format
 
@@ -105,10 +135,16 @@ targets:
   - name: codex
     enabled: true
     output_dir: .
+  - name: copilot
+    enabled: false
+    output_dir: .
   - name: cursor
     enabled: true
     output_dir: .
   - name: gemini
+    enabled: false
+    output_dir: .
+  - name: opencode
     enabled: false
     output_dir: .
   - name: windsurf
