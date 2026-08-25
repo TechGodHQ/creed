@@ -117,15 +117,25 @@ func (s *Implementation) Init(ctx context.Context, projectName string) error {
 	return s.writeManifest(manifest)
 }
 
-// Sync syncs local Creed context from .creed/ to configured targets.
+// Sync syncs the resolved Creed source context to configured targets.
 func (s *Implementation) Sync(ctx context.Context, opts usecase.SyncOptions) (*usecase.SyncResult, error) {
-	engine := usecase.NewSyncEngine(localfs.NewSource(s.root), localfs.NewEmitter(s.root))
+	source, err := s.openSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer source.close()
+	engine := usecase.NewSyncEngine(source.reader, localfs.NewEmitter(s.root))
 	return engine.Sync(ctx, opts)
 }
 
-// Diff compares rendered local Creed context with its target outputs.
+// Diff compares rendered resolved Creed context with its target outputs.
 func (s *Implementation) Diff(ctx context.Context, opts usecase.DiffOptions) (*usecase.DiffResult, error) {
-	engine := usecase.NewSyncEngine(localfs.NewSource(s.root), localfs.NewEmitter(s.root))
+	source, err := s.openSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer source.close()
+	engine := usecase.NewSyncEngine(source.reader, localfs.NewEmitter(s.root))
 	return engine.Diff(ctx, opts)
 }
 
@@ -173,9 +183,14 @@ func (s *Implementation) RemoveSkill(ctx context.Context, name string) error {
 	return fmt.Errorf("skill not found: %s", name)
 }
 
-// ListSkills lists all manifest-registered skills.
+// ListSkills lists all skills in the resolved source, including shared layers.
 func (s *Implementation) ListSkills(ctx context.Context) ([]domain.SkillInfo, error) {
-	return localfs.NewSource(s.root).ListSkills(ctx)
+	source, err := s.openSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer source.close()
+	return source.reader.ListSkills(ctx)
 }
 
 // AddConfig registers a configuration file path in the manifest.
@@ -222,9 +237,14 @@ func (s *Implementation) RemoveConfig(ctx context.Context, name string) error {
 	return fmt.Errorf("config not found: %s", name)
 }
 
-// ListConfigs lists all manifest-registered configuration files.
+// ListConfigs lists all configuration files in the resolved source, including shared layers.
 func (s *Implementation) ListConfigs(ctx context.Context) ([]domain.ConfigInfo, error) {
-	return localfs.NewSource(s.root).ListConfigs(ctx)
+	source, err := s.openSource(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer source.close()
+	return source.reader.ListConfigs(ctx)
 }
 
 // ListTargets lists all known targets and annotates them with manifest state.
@@ -235,6 +255,18 @@ func (s *Implementation) ListTargets(ctx context.Context) ([]domain.TargetInfo, 
 	manifest, err := s.readManifest()
 	if err != nil {
 		return nil, err
+	}
+	if manifest.Source.Type == "git" || manifest.Source.Type == "layered" || len(manifest.Source.Layers) > 0 {
+		source, sourceErr := s.openSource(ctx)
+		if sourceErr != nil {
+			return nil, sourceErr
+		}
+		defer source.close()
+		resolved, resolveErr := source.reader.ReadManifest(ctx)
+		if resolveErr != nil {
+			return nil, resolveErr
+		}
+		manifest = resolved
 	}
 	configured := make(map[string]domain.TargetConfig, len(manifest.Targets))
 	for _, tc := range manifest.Targets {
@@ -280,28 +312,38 @@ func (s *Implementation) DisableTarget(ctx context.Context, name string) error {
 	return s.setTargetEnabled(ctx, name, false)
 }
 
-// Pull reads Creed context from a git remote and syncs it into this service's
-// root using the same SyncEngine path as local sync.
+// Pull records a shared git layer and syncs the composed source into this
+// project's targets. It never replaces the local .creed source files.
 func (s *Implementation) Pull(ctx context.Context, remoteURL string) error {
-	if remoteURL == "" {
-		manifest, err := s.readManifest()
-		if err != nil {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if remoteURL != "" {
+		normalizedRemote, normalizeErr := normalizePullRemoteURL(remoteURL)
+		if normalizeErr != nil {
+			return normalizeErr
+		}
+		if err := s.ensureLayeredManifest(ctx, normalizedRemote); err != nil {
 			return err
 		}
-		remoteURL = manifest.Source.Remote
-	}
-	if remoteURL == "" {
-		return fmt.Errorf("remote URL is required")
-	}
-	source := gitremote.NewSource(remoteURL, s.token)
-	if s.cacheDir != "" {
-		source = gitremote.NewSourceWithCache(remoteURL, s.token, s.cacheDir)
 	} else {
-		defer func() {
-			_ = source.Cleanup()
-		}()
+		manifest, manifestErr := s.readManifest()
+		if manifestErr != nil {
+			return manifestErr
+		}
+		if manifest.Source.Type != "git" && manifest.Source.Type != "layered" && len(manifest.Source.Layers) == 0 {
+			return fmt.Errorf("remote URL is required for pull")
+		}
+		if manifest.Source.Type == "git" && strings.TrimSpace(manifest.Source.Remote) == "" {
+			return fmt.Errorf("remote URL is required for pull")
+		}
 	}
-	engine := usecase.NewSyncEngine(source, localfs.NewEmitter(s.root))
+	source, err := s.openSource(ctx)
+	if err != nil {
+		return err
+	}
+	defer source.close()
+	engine := usecase.NewSyncEngine(source.reader, localfs.NewEmitter(s.root))
 	result, err := engine.Sync(ctx, usecase.SyncOptions{})
 	if err != nil {
 		return err
@@ -312,6 +354,67 @@ func (s *Implementation) Pull(ctx context.Context, remoteURL string) error {
 	return nil
 }
 
+func (s *Implementation) ensureLayeredManifest(ctx context.Context, remoteURL string) error {
+	manifest, err := s.readManifest()
+	if err != nil {
+		if _, statErr := os.Stat(s.manifestPath()); statErr != nil && os.IsNotExist(statErr) {
+			remote, cleanup, openErr := s.openGitSource(gitremote.SourceOptions{RemoteURL: remoteURL})
+			if openErr != nil {
+				return openErr
+			}
+			remoteManifest, readErr := remote.ReadManifest(ctx)
+			cleanup()
+			if readErr != nil {
+				return readErr
+			}
+			manifest = &domain.Manifest{
+				Version: 1,
+				Source: domain.SourceConfig{
+					Type: "layered",
+					Path: ".creed",
+					Layers: []domain.SourceLayer{{
+						Name:   "org",
+						Type:   "git",
+						Path:   ".creed",
+						Remote: remoteURL,
+					}},
+				},
+				Targets: remoteManifest.Targets,
+			}
+			return s.writeManifest(manifest)
+		}
+		return err
+	}
+	manifest.Source.Type = "layered"
+	manifest.Source.Path = sourcePathOrDefault(manifest.Source.Path)
+	updated := false
+	for i := range manifest.Source.Layers {
+		if manifest.Source.Layers[i].Name == "org" || manifest.Source.Layers[i].Remote == remoteURL {
+			layer := manifest.Source.Layers[i]
+			if layer.Name == "" {
+				layer.Name = "org"
+			}
+			layer.Type = "git"
+			if layer.Path == "" {
+				layer.Path = ".creed"
+			}
+			layer.Remote = remoteURL
+			manifest.Source.Layers[i] = layer
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		manifest.Source.Layers = append(manifest.Source.Layers, domain.SourceLayer{
+			Name:   "org",
+			Type:   "git",
+			Path:   ".creed",
+			Remote: remoteURL,
+		})
+	}
+	return s.writeManifest(manifest)
+}
+
 // Push publishes local .creed source changes to a git remote using the system
 // git executable. It is intentionally isolated here until a writable git port
 // exists; callers still interact through the stable Service contract.
@@ -319,11 +422,14 @@ func (s *Implementation) Push(ctx context.Context, remoteURL string) error {
 	if err := ctx.Err(); err != nil {
 		return err
 	}
+	manifest, err := s.readManifest()
+	if err != nil {
+		return err
+	}
+	if manifest.Source.Type == "layered" || len(manifest.Source.Layers) > 0 {
+		return fmt.Errorf("push is not supported for layered sources; update the shared repository through a pull request")
+	}
 	if remoteURL == "" {
-		manifest, err := s.readManifest()
-		if err != nil {
-			return err
-		}
 		remoteURL = manifest.Source.Remote
 	}
 	if remoteURL == "" {
@@ -529,10 +635,20 @@ type manifestYAML struct {
 	Configs []domain.ConfigEntry `yaml:"config,omitempty"`
 }
 
-type sourceConfigYAML struct {
+type sourceLayerYAML struct {
+	Name   string `yaml:"name"`
 	Type   string `yaml:"type"`
 	Path   string `yaml:"path"`
 	Remote string `yaml:"remote,omitempty"`
+	Ref    string `yaml:"ref,omitempty"`
+}
+
+type sourceConfigYAML struct {
+	Type   string            `yaml:"type"`
+	Path   string            `yaml:"path"`
+	Remote string            `yaml:"remote,omitempty"`
+	Ref    string            `yaml:"ref,omitempty"`
+	Layers []sourceLayerYAML `yaml:"layers,omitempty"`
 }
 
 type targetConfigYAML struct {
@@ -548,9 +664,19 @@ func toManifestYAML(manifest *domain.Manifest) manifestYAML {
 			Type:   manifest.Source.Type,
 			Path:   manifest.Source.Path,
 			Remote: manifest.Source.Remote,
+			Ref:    manifest.Source.Ref,
 		},
 		Skills:  manifest.Skills,
 		Configs: manifest.Configs,
+	}
+	for _, layer := range manifest.Source.Layers {
+		mf.Source.Layers = append(mf.Source.Layers, sourceLayerYAML{
+			Name:   layer.Name,
+			Type:   layer.Type,
+			Path:   layer.Path,
+			Remote: layer.Remote,
+			Ref:    layer.Ref,
+		})
 	}
 	for _, tc := range manifest.Targets {
 		mf.Targets = append(mf.Targets, targetConfigYAML{
@@ -612,7 +738,12 @@ func (s *Implementation) Watch(ctx context.Context, opts usecase.WatchOptions, s
 	}()
 
 	syncFn := func(ctx context.Context, syncOpts usecase.SyncOptions) (*usecase.SyncResult, error) {
-		engine := usecase.NewSyncEngine(localfs.NewSource(s.root), localfs.NewEmitter(s.root))
+		source, err := s.openSource(ctx)
+		if err != nil {
+			return nil, err
+		}
+		defer source.close()
+		engine := usecase.NewSyncEngine(source.reader, localfs.NewEmitter(s.root))
 		return engine.Sync(ctx, syncOpts)
 	}
 	engine := usecase.NewWatchEngine(watcher, syncFn)

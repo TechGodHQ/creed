@@ -838,3 +838,21 @@ func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
 }
+
+func TestSyncRejectsSkillNameTraversalBeforeEmit(t *testing.T) {
+	src := newTestSource()
+	const maliciousName = "../../escape"
+	src.manifest.Skills = append(src.manifest.Skills, domain.SkillEntry{Name: maliciousName, Path: "skills/escape.md"})
+	src.skills[maliciousName] = &domain.Skill{Name: maliciousName, Path: "skills/escape.md", Content: []byte("must not write")}
+	root := t.TempDir()
+	result, err := NewSyncEngine(src, localfs.NewEmitter(root)).Sync(context.Background(), SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("Sync() returned top-level error: %v", err)
+	}
+	if !result.HasErrors() {
+		t.Fatalf("Sync() accepted malicious skill name: %#v", result)
+	}
+	if _, err := os.Stat(filepath.Join(root, "..", "escape.md")); !os.IsNotExist(err) {
+		t.Fatalf("malicious skill created an outside file: %v", err)
+	}
+}

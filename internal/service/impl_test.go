@@ -748,9 +748,9 @@ config:
 	if strings.Contains(report.SourceRemote, "hunter2") {
 		t.Errorf("SourceRemote leaked URL password: %s", report.SourceRemote)
 	}
-	// The username should be preserved (safe to display).
-	if !strings.Contains(report.SourceRemote, "ci-user") {
-		t.Errorf("SourceRemote should preserve username; got: %s", report.SourceRemote)
+	// URL userinfo must be removed completely; usernames may be tokens.
+	if strings.Contains(report.SourceRemote, "ci-user") {
+		t.Errorf("SourceRemote leaked URL username: %s", report.SourceRemote)
 	}
 	// The host and path should be intact.
 	if !strings.Contains(report.SourceRemote, "git.example.com/repo.git") {

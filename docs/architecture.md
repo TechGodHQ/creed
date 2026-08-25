@@ -106,6 +106,8 @@ Implemented adapters:
 - `localfs.Source`: reads `.creed/` in the current project.
 - `gitremote.Source`: clones or reuses a cached git repository, then delegates
   reads to the local filesystem adapter.
+- `layered.Source`: merges ordered local/git readers into one SourceReader; the
+  service appends the consumer's local reader after shared layers.
 
 ## Target emitters
 
@@ -124,12 +126,13 @@ and skips files whose content is already identical.
 
 `internal/usecase.SyncEngine` performs one sync run:
 
-1. Read `.creed/manifest.yaml`.
-2. Resolve either a requested target (`--target`) or all enabled targets.
-3. Validate `output_dir` so emitted paths cannot escape the project root.
-4. Read all manifest-declared skills and config files.
-5. For each target, prepare emitted files from target path metadata.
-6. Emit files, collecting per-file and per-target result data.
+1. Read `.creed/manifest.yaml` and resolve its local/git/layered source graph.
+2. Read every ordered shared layer, then the consumer's local source.
+3. Resolve either a requested target (`--target`) or all enabled targets.
+4. Validate `output_dir` so emitted paths cannot escape the project root.
+5. Read all composed skills and config files.
+6. For each target, prepare emitted files from target path metadata.
+7. Emit files, collecting per-file and per-target result data.
 
 Partial target failures are isolated: one failed target does not prevent the next
 target from running. A top-level error is reserved for failures that prevent the

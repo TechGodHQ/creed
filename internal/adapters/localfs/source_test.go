@@ -202,3 +202,51 @@ func TestListConfigs(t *testing.T) {
 		t.Errorf("expected configs[0].Name == \"project-context\", got %q", configs[0].Name)
 	}
 }
+
+func TestReadConfigRejectsSymlinkEscape(t *testing.T) {
+	root := createTestProject(t)
+	external := filepath.Join(t.TempDir(), "outside.md")
+	if err := os.WriteFile(external, []byte("secret"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(root, ".creed", "config", "leak.md")
+	if err := os.Symlink(external, link); err != nil {
+		t.Fatal(err)
+	}
+	manifestPath := filepath.Join(root, ".creed", "manifest.yaml")
+	manifest := mustReadLocal(t, manifestPath)
+	manifest += "  - name: leak\n    path: config/leak.md\n"
+	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSource(root).ReadConfig(context.Background(), "leak"); err == nil {
+		t.Fatal("ReadConfig followed a symlink outside the source directory")
+	}
+}
+
+func mustReadLocal(t *testing.T, path string) string {
+	t.Helper()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return string(data)
+}
+
+func TestReadManifestRejectsAncestorSymlinkSourcePath(t *testing.T) {
+	root := t.TempDir()
+	outside := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(outside, ".creed"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := "version: 1\nsource:\n  type: local\n  path: .creed\n"
+	if err := os.WriteFile(filepath.Join(outside, ".creed", "manifest.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, "link")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := NewSourceWithPath(root, "link/.creed").ReadManifest(context.Background()); err == nil {
+		t.Fatal("ReadManifest traversed an ancestor symlink")
+	}
+}

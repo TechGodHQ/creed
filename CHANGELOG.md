@@ -4,6 +4,16 @@ All notable changes to creed are documented here. The format follows
 [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and the project
 adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+### Added
+
+- **Layered context sources.** Compose cached git organization context with
+  per-repository `.creed/` files; `sync`, `diff`, `validate`, and `doctor` now
+  share the same resolved source path.
+- **Layered migration guide.** Document manifest configuration, pinned refs,
+  authentication, CI drift gating, and non-clobbering pull/push behavior.
+
 ## [0.3.0] — 2026-08-19
 
 The first post-reset feature release. Everything shipped since v0.1.0 lands
