@@ -2,6 +2,7 @@ package gitremote
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"os"
 	"os/exec"
@@ -417,5 +418,93 @@ func TestClassifyGitErrorSanitizesRemoteURL(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "authentication failed") {
 		t.Fatalf("classified error did not label auth failure: %v", err)
+	}
+}
+
+func TestGitRemotePinnedCommitCacheWorksOffline(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+	bareURL := createBareRepo(t)
+	output, err := exec.Command("git", "--git-dir", bareURL, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v: %s", err, output)
+	}
+	ref := strings.TrimSpace(string(output))
+	cacheDir := t.TempDir()
+	options := SourceOptions{RemoteURL: bareURL, Ref: ref, CacheDir: cacheDir}
+	first := NewSourceWithOptions(options)
+	if _, err := first.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("first pinned read: %v", err)
+	}
+	if first.CachedSHA() != ref {
+		t.Fatalf("first pinned SHA = %q, want %q", first.CachedSHA(), ref)
+	}
+	if err := os.RemoveAll(bareURL); err != nil {
+		t.Fatalf("remove remote: %v", err)
+	}
+	second := NewSourceWithOptions(options)
+	if _, err := second.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("offline pinned cache read: %v", err)
+	}
+	if second.CloneCount() != 0 {
+		t.Fatalf("offline pinned cache cloned %d times, want 0", second.CloneCount())
+	}
+}
+
+func TestGitRemoteAnnotatedTagRef(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+	bareURL := createBareRepo(t)
+	workDir := t.TempDir()
+	commands := [][]string{
+		{"git", "clone", bareURL, workDir},
+		{"git", "-C", workDir, "config", "user.name", "Tag Test"},
+		{"git", "-C", workDir, "config", "user.email", "tag@example.invalid"},
+		{"git", "-C", workDir, "tag", "-a", "v1", "-m", "release"},
+		{"git", "-C", workDir, "push", "origin", "refs/tags/v1"},
+	}
+	for _, args := range commands {
+		if output, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, output)
+		}
+	}
+	src := NewSourceWithOptions(SourceOptions{RemoteURL: bareURL, Ref: "v1"})
+	if _, err := src.ReadManifest(context.Background()); err != nil {
+		t.Fatalf("annotated tag read: %v", err)
+	}
+	defer src.Cleanup()
+}
+
+func TestGitRemoteRejectsEscapedCacheMetadata(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+	bareURL := createBareRepo(t)
+	cacheDir := t.TempDir()
+	src := NewSourceWithCache(bareURL, "", cacheDir)
+	external := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(external, ".creed"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(external, ".creed", "manifest.yaml"), []byte("version: 1\nsource:\n  type: local\n  path: .creed\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Dir(src.cacheFilePath()), 0755); err != nil {
+		t.Fatal(err)
+	}
+	data, err := json.Marshal(cacheEntry{SHA: "0123456789012345678901234567890123456789", Dir: external})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(src.cacheFilePath(), data, 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.RemoveAll(bareURL); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := src.ReadManifest(context.Background()); err == nil {
+		t.Fatal("ReadManifest trusted cache metadata outside the configured cache")
 	}
 }

@@ -111,14 +111,36 @@ type TargetInfo struct {
 	Outputs []TargetOutput
 }
 
+// SourceLayer describes one ordered context layer in a layered source.
+// Layers are read in declaration order and the project's local layer is read
+// last, so repository-specific context follows the shared context.
+type SourceLayer struct {
+	// Name is a stable human-readable layer identifier.
+	Name string
+	// Type is the layer backend type: "local" or "git".
+	Type string
+	// Path is the source directory relative to the layer root.
+	Path string
+	// Remote is the git clone URL for a git layer.
+	Remote string
+	// Ref optionally pins the git layer to a branch, tag, or commit SHA.
+	Ref string
+}
+
 // SourceConfig configures the source backend for reading creed data.
 type SourceConfig struct {
-	// Type is the source backend type: "local" or "git".
+	// Type is the source backend type: "local", "git", or "layered".
+	// A local source may also declare Layers for backwards-compatible overlay
+	// configuration; layered is the canonical type when overlays are present.
 	Type string
-	// Path is the directory path (for local source, typically ".creed").
+	// Path is the source directory path (for local source, typically ".creed").
 	Path string
-	// Remote is the git clone URL (for git source). Empty for local.
+	// Remote is the git clone URL (for a direct git source). Empty for local.
 	Remote string
+	// Ref optionally pins a direct git source to a branch, tag, or commit SHA.
+	Ref string
+	// Layers are ordered shared/overlay sources read before the local project.
+	Layers []SourceLayer
 }
 
 // TargetConfig represents a target entry in the manifest.

@@ -11,6 +11,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,8 +45,12 @@ var errCacheMiss = errors.New("git remote cache miss")
 // It implements ports.SourceReader by cloning the repository to a directory
 // and delegating reads to a LocalFS adapter.
 type Source struct {
-	// remoteURL is the git clone URL (HTTPS).
+	// remoteURL is the git clone URL.
 	remoteURL string
+	// sourcePath is the source directory relative to the cloned repository.
+	sourcePath string
+	// ref optionally pins the clone to a branch, tag, or commit SHA.
+	ref string
 	// token is an optional authentication token for private repos.
 	token string
 	// cacheDir is an optional persistent directory for commit-cache behavior.
@@ -62,30 +67,57 @@ type Source struct {
 	cloneCount  int             // test hook: number of actual clone operations performed
 }
 
+// SourceOptions configures a GitRemote source reader.
+type SourceOptions struct {
+	// RemoteURL is the git clone URL.
+	RemoteURL string
+	// SourcePath is the source directory relative to the cloned repository.
+	SourcePath string
+	// Ref optionally pins the clone to a branch, tag, or commit SHA.
+	Ref string
+	// Token is an optional HTTPS authentication token.
+	Token string
+	// CacheDir enables persistent clone caching when non-empty.
+	CacheDir string
+}
+
 // NewSource creates a GitRemote source reader for the given remote URL.
 // An optional token can be provided for private repository access.
 // Clones go to a temp directory with no persistent caching.
 func NewSource(remoteURL, token string) *Source {
-	return &Source{
-		remoteURL: remoteURL,
-		token:     token,
-	}
+	return NewSourceWithOptions(SourceOptions{RemoteURL: remoteURL, Token: token})
 }
 
 // NewSourceWithCache creates a GitRemote source reader with persistent commit
 // caching. The cacheDir stores clone directories and SHA metadata so that
 // subsequent reads on unchanged remote HEAD skip the clone entirely.
 func NewSourceWithCache(remoteURL, token, cacheDir string) *Source {
+	return NewSourceWithOptions(SourceOptions{RemoteURL: remoteURL, Token: token, CacheDir: cacheDir})
+}
+
+// NewSourceWithOptions creates a GitRemote source reader with an explicit
+// source subdirectory, optional ref pin, authentication token, and cache.
+func NewSourceWithOptions(options SourceOptions) *Source {
+	sourcePath := options.SourcePath
+	if strings.TrimSpace(sourcePath) == "" {
+		sourcePath = ".creed"
+	}
 	return &Source{
-		remoteURL: remoteURL,
-		token:     token,
-		cacheDir:  cacheDir,
+		remoteURL:  options.RemoteURL,
+		sourcePath: sourcePath,
+		ref:        strings.TrimSpace(options.Ref),
+		token:      options.Token,
+		cacheDir:   options.CacheDir,
 	}
 }
 
 // cacheKey returns a deterministic cache key derived from the remote URL.
 func (s *Source) cacheKey() string {
-	h := sha256.Sum256([]byte(s.remoteURL))
+	material := s.remoteURL
+	if s.ref != "" {
+		material += "\x00" + s.ref
+	}
+	h := sha256.Sum256([]byte(material))
 	return hex.EncodeToString(h[:])
 }
 
@@ -99,8 +131,56 @@ func (s *Source) cacheFilePath() string {
 	return filepath.Join(s.cacheDir, "refs", s.cacheKey()+".json")
 }
 
+func (s *Source) ensureCacheLayout(create bool) error {
+	if s.cacheDir == "" {
+		return nil
+	}
+	for _, path := range []string{s.cacheDir, filepath.Join(s.cacheDir, "clones"), filepath.Join(s.cacheDir, "refs")} {
+		if err := ensureDirectoryNoSymlink(path, create); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func ensureDirectoryNoSymlink(path string, create bool) error {
+	absolute, err := filepath.Abs(path)
+	if err != nil {
+		return err
+	}
+	volume := filepath.VolumeName(absolute)
+	current := volume + string(filepath.Separator)
+	rest := strings.TrimPrefix(absolute, current)
+	for _, part := range strings.Split(rest, string(filepath.Separator)) {
+		if part == "" || part == "." {
+			continue
+		}
+		current = filepath.Join(current, part)
+		info, statErr := os.Lstat(current)
+		if errors.Is(statErr, os.ErrNotExist) {
+			if !create {
+				return statErr
+			}
+			if err := os.Mkdir(current, 0755); err != nil && !errors.Is(err, os.ErrExist) {
+				return err
+			}
+			info, statErr = os.Lstat(current)
+		}
+		if statErr != nil {
+			return statErr
+		}
+		if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+			return fmt.Errorf("cache component %q must be a non-symlink directory", current)
+		}
+	}
+	return nil
+}
+
 // writeCache persists the current SHA and clone directory to the cache file.
 func (s *Source) writeCache() error {
+	if err := s.ensureCacheLayout(true); err != nil {
+		return fmt.Errorf("prepare cache layout: %w", err)
+	}
 	entry := cacheEntry{
 		SHA: s.cachedSHA,
 		Dir: s.clonedDir,
@@ -109,11 +189,25 @@ func (s *Source) writeCache() error {
 	if err != nil {
 		return fmt.Errorf("marshal cache entry: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(s.cacheFilePath()), 0755); err != nil {
-		return fmt.Errorf("create cache dir: %w", err)
+	tmp, err := os.CreateTemp(filepath.Dir(s.cacheFilePath()), ".creed-cache-*")
+	if err != nil {
+		return fmt.Errorf("create cache temp file: %w", err)
 	}
-	if err := os.WriteFile(s.cacheFilePath(), data, 0644); err != nil {
-		return fmt.Errorf("write cache file: %w", err)
+	tmpName := tmp.Name()
+	defer os.Remove(tmpName)
+	if err := tmp.Chmod(0644); err != nil {
+		tmp.Close()
+		return fmt.Errorf("chmod cache temp file: %w", err)
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return fmt.Errorf("write cache temp file: %w", err)
+	}
+	if err := tmp.Close(); err != nil {
+		return fmt.Errorf("close cache temp file: %w", err)
+	}
+	if err := os.Rename(tmpName, s.cacheFilePath()); err != nil {
+		return fmt.Errorf("replace cache file: %w", err)
 	}
 	return nil
 }
@@ -124,7 +218,15 @@ func (s *Source) InvalidateCache() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	if s.cacheDir == "" {
+		s.clonedDir, s.cachedSHA, s.localSource, s.cloned = "", "", nil, false
 		return nil
+	}
+	if err := s.ensureCacheLayout(false); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			s.clonedDir, s.cachedSHA, s.localSource, s.cloned = "", "", nil, false
+			return nil
+		}
+		return fmt.Errorf("validate cache layout: %w", err)
 	}
 	if err := os.RemoveAll(s.clonePath()); err != nil {
 		return fmt.Errorf("remove cached clone: %w", err)
@@ -132,15 +234,21 @@ func (s *Source) InvalidateCache() error {
 	if err := os.Remove(s.cacheFilePath()); err != nil && !errors.Is(err, os.ErrNotExist) {
 		return fmt.Errorf("remove cache metadata: %w", err)
 	}
-	s.clonedDir = ""
-	s.cachedSHA = ""
-	s.localSource = nil
-	s.cloned = false
+	s.clonedDir, s.cachedSHA, s.localSource, s.cloned = "", "", nil, false
 	return nil
 }
 
 // readCache reads the cache entry for this remote, if it exists.
 func (s *Source) readCache() (*cacheEntry, error) {
+	if err := s.ensureCacheLayout(false); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("%w: cache metadata missing", errCacheMiss)
+		}
+		return nil, err
+	}
+	if info, err := os.Lstat(s.cacheFilePath()); err == nil && info.Mode()&os.ModeSymlink != 0 {
+		return nil, fmt.Errorf("%w: cache metadata is a symlink", errCacheMiss)
+	}
 	data, err := os.ReadFile(s.cacheFilePath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
@@ -158,31 +266,12 @@ func (s *Source) readCache() (*cacheEntry, error) {
 // remoteHeadSHA queries the remote repository for the current HEAD commit SHA
 // without cloning. Uses go-git's ls-remote via an in-memory repository.
 func (s *Source) remoteHeadSHA(ctx context.Context) (string, error) {
-	repo, err := git.Init(memory.NewStorage(), nil)
-	if err != nil {
-		return "", fmt.Errorf("init temp repo for ls-remote: %w", err)
-	}
-
-	remoteCfg := &config.RemoteConfig{
-		Name: "origin",
-		URLs: []string{s.remoteURL},
-	}
-
-	remote, err := repo.CreateRemote(remoteCfg)
-	if err != nil {
-		return "", fmt.Errorf("create remote: %w", err)
-	}
-
-	auth, err := s.authMethod()
+	refs, err := s.remoteRefs(ctx)
 	if err != nil {
 		return "", err
 	}
-
-	listOpts := &git.ListOptions{Auth: auth}
-
-	refs, err := remote.ListContext(ctx, listOpts)
-	if err != nil {
-		return "", classifyGitError("list remote refs", s.remoteURL, err)
+	if s.ref != "" {
+		return resolveRemoteRef(refs, s.ref)
 	}
 
 	// Prefer the HEAD reference. In ls-remote output, HEAD may be a
@@ -197,21 +286,68 @@ func (s *Source) remoteHeadSHA(ctx context.Context) (string, error) {
 		}
 	}
 
-	// Fall back to main branch.
-	for _, ref := range refs {
-		if ref.Name().IsBranch() && ref.Name().Short() == "main" {
-			return ref.Hash().String(), nil
+	for _, branch := range []string{"main", "master"} {
+		for _, ref := range refs {
+			if ref.Name().IsBranch() && ref.Name().Short() == branch {
+				return ref.Hash().String(), nil
+			}
 		}
 	}
-
-	// Fall back to master branch.
-	for _, ref := range refs {
-		if ref.Name().IsBranch() && ref.Name().Short() == "master" {
-			return ref.Hash().String(), nil
-		}
-	}
-
 	return "", fmt.Errorf("no HEAD, master, or main reference found in remote")
+}
+
+func (s *Source) remoteRefs(ctx context.Context) ([]*plumbing.Reference, error) {
+	repo, err := git.Init(memory.NewStorage(), nil)
+	if err != nil {
+		return nil, fmt.Errorf("init temp repo for ls-remote: %w", err)
+	}
+	remote, err := repo.CreateRemote(&config.RemoteConfig{Name: "origin", URLs: []string{s.remoteURL}})
+	if err != nil {
+		return nil, fmt.Errorf("create remote: %w", err)
+	}
+	auth, err := s.authMethod()
+	if err != nil {
+		return nil, err
+	}
+	refs, err := remote.ListContext(ctx, &git.ListOptions{Auth: auth})
+	if err != nil {
+		return nil, classifyGitError("list remote refs", s.remoteURL, err)
+	}
+	return refs, nil
+}
+
+func resolveRemoteRef(refs []*plumbing.Reference, requested string) (string, error) {
+	if isCommitSHA(requested) {
+		return strings.ToLower(requested), nil
+	}
+	names := []string{}
+	if strings.HasPrefix(requested, "refs/") {
+		names = append(names, requested)
+	} else {
+		// Prefer branches when a name is ambiguous, then tags.
+		names = append(names, plumbing.NewBranchReferenceName(requested).String(), plumbing.NewTagReferenceName(requested).String())
+	}
+	for _, name := range names {
+		var direct *plumbing.Reference
+		for _, ref := range refs {
+			if ref.Name().String() == name {
+				direct = ref
+				break
+			}
+		}
+		if direct == nil {
+			continue
+		}
+		// Annotated tags may have a peeled ^{} ref. Prefer the commit hash.
+		peeledName := plumbing.ReferenceName(name + "^{}").String()
+		for _, ref := range refs {
+			if ref.Name().String() == peeledName {
+				return ref.Hash().String(), nil
+			}
+		}
+		return direct.Hash().String(), nil
+	}
+	return "", fmt.Errorf("reference %q not found in remote", requested)
 }
 
 // ensureCloned clones the repository on first access. Subsequent calls within
@@ -259,28 +395,49 @@ func (s *Source) tryCache(ctx context.Context) error {
 		return err
 	}
 
-	// Check if the cached clone directory still exists.
-	if _, err := os.Stat(entry.Dir); err != nil {
+	// Cache metadata is untrusted. Only accept the clone path owned by this
+	// Source instance and reject symlinked/escaped cache directories.
+	expectedDir := filepath.Clean(s.clonePath())
+	if filepath.Clean(entry.Dir) != expectedDir {
+		return fmt.Errorf("%w: cached clone path is outside the expected cache", errCacheMiss)
+	}
+	cacheRoot, err := filepath.EvalSymlinks(s.cacheDir)
+	if err != nil {
+		return fmt.Errorf("%w: cache root unavailable", errCacheMiss)
+	}
+	resolvedDir, err := filepath.EvalSymlinks(expectedDir)
+	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return fmt.Errorf("%w: cached clone dir missing", errCacheMiss)
 		}
-		return fmt.Errorf("stat cached clone dir: %w", err)
+		return fmt.Errorf("%w: cached clone cannot be resolved", errCacheMiss)
+	}
+	if relative, relErr := filepath.Rel(cacheRoot, resolvedDir); relErr != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) {
+		return fmt.Errorf("%w: cached clone escapes cache root", errCacheMiss)
+	}
+	if info, statErr := os.Lstat(expectedDir); statErr != nil || info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return fmt.Errorf("%w: cached clone must be a non-symlink directory", errCacheMiss)
 	}
 
-	// Query remote HEAD to see if it has changed.
-	remoteSHA, err := s.remoteHeadSHA(ctx)
-	if err != nil {
-		return fmt.Errorf("cannot determine remote HEAD: %w", err)
-	}
-
-	if remoteSHA != entry.SHA {
-		return fmt.Errorf("%w: remote HEAD changed (was %s, now %s)", errCacheMiss, shortSHA(entry.SHA), shortSHA(remoteSHA))
+	if isCommitSHA(s.ref) {
+		if !strings.EqualFold(entry.SHA, s.ref) {
+			return fmt.Errorf("%w: cached SHA does not match pinned ref", errCacheMiss)
+		}
+	} else {
+		// Query remote HEAD or the mutable branch/tag ref to see if it changed.
+		remoteSHA, err := s.remoteHeadSHA(ctx)
+		if err != nil {
+			return fmt.Errorf("cannot determine remote HEAD: %w", err)
+		}
+		if !strings.EqualFold(remoteSHA, entry.SHA) {
+			return fmt.Errorf("%w: remote HEAD changed (was %s, now %s)", errCacheMiss, shortSHA(entry.SHA), shortSHA(remoteSHA))
+		}
 	}
 
 	// Cache hit — reuse the existing clone directory.
 	s.clonedDir = entry.Dir
 	s.cachedSHA = entry.SHA
-	s.localSource = localfs.NewSource(entry.Dir)
+	s.localSource = localfs.NewSourceWithPath(entry.Dir, s.sourcePath)
 	s.cloned = true
 	return nil
 }
@@ -296,10 +453,18 @@ func (s *Source) clone(ctx context.Context) error {
 
 	if s.cacheDir != "" {
 		// Persistent clone directory for caching.
+		if err := s.ensureCacheLayout(true); err != nil {
+			return fmt.Errorf("prepare cache layout: %w", err)
+		}
 		cloneDir = s.clonePath()
+		if info, statErr := os.Lstat(cloneDir); statErr == nil && info.Mode()&os.ModeSymlink != 0 {
+			return fmt.Errorf("cached clone path must not be a symlink")
+		}
 		// Remove any stale clone from a previous run.
-		os.RemoveAll(cloneDir)
-		if err := os.MkdirAll(cloneDir, 0755); err != nil {
+		if err := os.RemoveAll(cloneDir); err != nil {
+			return fmt.Errorf("remove stale clone: %w", err)
+		}
+		if err := os.Mkdir(cloneDir, 0755); err != nil {
 			return fmt.Errorf("create clone dir: %w", err)
 		}
 	} else {
@@ -317,12 +482,37 @@ func (s *Source) clone(ctx context.Context) error {
 		Depth: 1,
 		Auth:  auth,
 	}
+	var checkoutSHA string
+	if s.ref != "" {
+		checkoutSHA, err = s.remoteHeadSHA(ctx)
+		if err != nil {
+			os.RemoveAll(cloneDir)
+			return err
+		}
+		// Fetch the complete ref set so branch, lightweight-tag, annotated-tag,
+		// and full-SHA pins all resolve to the same checked-out commit.
+		cloneOpts.Tags = git.AllTags
+		cloneOpts.Depth = 0
+	}
 
 	repo, err := git.PlainCloneContext(ctx, cloneDir, false, cloneOpts)
 	if err != nil {
 		// Clean up the failed clone directory.
 		os.RemoveAll(cloneDir)
 		return classifyGitError("clone repository", s.remoteURL, err)
+	}
+
+	if s.ref != "" {
+		worktree, err := repo.Worktree()
+		if err != nil {
+			os.RemoveAll(cloneDir)
+			return fmt.Errorf("open cloned worktree: %w", err)
+		}
+		checkout := &git.CheckoutOptions{Hash: plumbing.NewHash(checkoutSHA)}
+		if err := worktree.Checkout(checkout); err != nil {
+			os.RemoveAll(cloneDir)
+			return classifyGitError("checkout reference", s.remoteURL, err)
+		}
 	}
 
 	head, err := repo.Head()
@@ -333,7 +523,7 @@ func (s *Source) clone(ctx context.Context) error {
 
 	s.clonedDir = cloneDir
 	s.cachedSHA = head.Hash().String()
-	s.localSource = localfs.NewSource(cloneDir)
+	s.localSource = localfs.NewSourceWithPath(cloneDir, s.sourcePath)
 	s.cloned = true
 
 	return nil
@@ -444,17 +634,30 @@ func (s *Source) authMethod() (transport.AuthMethod, error) {
 	}
 	method, err := ssh.NewSSHAgentAuth("git")
 	if err != nil {
-		return nil, fmt.Errorf("SSH remote %q requires SSH auth: set SSH_AUTH_SOCK or CREED_GIT_SSH_KEY: %w", s.remoteURL, err)
+		return nil, fmt.Errorf("SSH remote %q requires SSH auth: set SSH_AUTH_SOCK or CREED_GIT_SSH_KEY: %w", sanitizeRemoteURL(s.remoteURL), err)
 	}
 	return method, nil
 }
 
 func isHTTPSRemote(remoteURL string) bool {
-	return strings.HasPrefix(remoteURL, "https://")
+	return strings.HasPrefix(strings.ToLower(strings.TrimSpace(remoteURL)), "https://")
 }
 
 func isSSHRemote(remoteURL string) bool {
+	remoteURL = strings.ToLower(strings.TrimSpace(remoteURL))
 	return strings.HasPrefix(remoteURL, "git@") || strings.HasPrefix(remoteURL, "ssh://")
+}
+
+func isCommitSHA(ref string) bool {
+	if len(ref) != 40 {
+		return false
+	}
+	for _, r := range ref {
+		if !(r >= '0' && r <= '9') && !(r >= 'a' && r <= 'f') && !(r >= 'A' && r <= 'F') {
+			return false
+		}
+	}
+	return true
 }
 
 func classifyGitError(operation, remoteURL string, err error) error {
@@ -485,14 +688,20 @@ func sanitizeErrorMessage(message string) string {
 }
 
 func sanitizeRemoteURL(remoteURL string) string {
-	if !strings.HasPrefix(remoteURL, "https://") || !strings.Contains(remoteURL, "@") {
-		return remoteURL
+	remoteURL = strings.TrimSpace(remoteURL)
+	parsed, err := url.Parse(remoteURL)
+	if err == nil && parsed.Scheme != "" {
+		parsed.User = nil
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return parsed.String()
 	}
-	parts := strings.SplitN(strings.TrimPrefix(remoteURL, "https://"), "@", 2)
-	if len(parts) != 2 {
-		return remoteURL
+	if at := strings.LastIndex(remoteURL, "@"); at >= 0 {
+		if colon := strings.Index(remoteURL, ":"); colon > 0 && colon < at {
+			return remoteURL[at+1:]
+		}
 	}
-	return "https://" + parts[1]
+	return remoteURL
 }
 
 // injectToken injects an authentication token into an HTTPS git URL.

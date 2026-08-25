@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"net/url"
 	"os"
 	"os/exec"
@@ -116,9 +117,21 @@ func (s *Implementation) Doctor(ctx context.Context) (DoctorReport, error) {
 	}
 
 	// --- Source type / remote (from manifest, best-effort) ---
+	requiresGit := false
 	if manifest, err := s.readManifest(); err == nil {
 		report.SourceType = manifest.Source.Type
-		report.SourceRemote = redactRemoteURL(manifest.Source.Remote)
+		requiresGit = manifest.Source.Type == "git"
+		remotes := []string{}
+		if manifest.Source.Remote != "" {
+			remotes = append(remotes, redactRemoteURL(manifest.Source.Remote))
+		}
+		for _, layer := range manifest.Source.Layers {
+			requiresGit = requiresGit || layer.Type == "git"
+			if layer.Remote != "" {
+				remotes = append(remotes, redactRemoteURL(layer.Remote))
+			}
+		}
+		report.SourceRemote = strings.Join(remotes, ", ")
 	}
 
 	// --- Canonical validation ---
@@ -173,7 +186,7 @@ func (s *Implementation) Doctor(ctx context.Context) (DoctorReport, error) {
 			Detail:  gitPath,
 		})
 	} else {
-		if report.SourceType == "git" {
+		if requiresGit {
 			report.Checks = append(report.Checks, DoctorCheck{
 				Kind:    "error",
 				Code:    "git_missing_for_remote_source",
@@ -220,20 +233,46 @@ func (s *Implementation) resolveRoot() string {
 // parsed, it falls back to a conservative split-based approach that removes
 // anything between the scheme and the last @ before the host.
 func redactRemoteURL(remote string) string {
+	remote = strings.TrimSpace(remote)
 	if remote == "" {
 		return ""
 	}
-	// SSH-style URLs (git@host:path) have no URL userinfo; safe to return.
-	if !strings.HasPrefix(remote, "https://") && !strings.HasPrefix(remote, "http://") {
-		return remote
+	parsed, err := url.Parse(remote)
+	if err == nil && parsed.Scheme != "" {
+		// Drop all userinfo. Usernames can themselves be bearer tokens.
+		parsed.User = nil
+		parsed.RawQuery = ""
+		parsed.Fragment = ""
+		return parsed.String()
+	}
+	// scp-style SSH remotes have no URL scheme. If parsing failed but the
+	// value still contains userinfo, strip everything through the last @.
+	if at := strings.LastIndex(remote, "@"); at >= 0 {
+		if colon := strings.Index(remote, ":"); colon > 0 && colon < at {
+			return remote[at+1:]
+		}
+	}
+	return remote
+}
+
+func normalizePullRemoteURL(remote string) (string, error) {
+	remote = strings.TrimSpace(remote)
+	if remote == "" {
+		return remote, nil
 	}
 	parsed, err := url.Parse(remote)
-	if err != nil || parsed.User == nil {
-		return remote
+	if err != nil {
+		return "", fmt.Errorf("invalid remote URL: %w", err)
 	}
-	// Preserve the username (safe to display), drop the password.
-	if _, hasPassword := parsed.User.Password(); hasPassword {
-		parsed.User = url.User(parsed.User.Username())
+	if parsed.User != nil {
+		return "", fmt.Errorf("remote URL must not contain embedded credentials; configure HTTPS/SSH authentication separately")
 	}
-	return parsed.String()
+	if parsed.Scheme == "" {
+		// scp-style SSH remotes (git@host:path) are intentionally accepted.
+		return remote, nil
+	}
+	if parsed.RawQuery != "" || parsed.Fragment != "" {
+		return "", fmt.Errorf("remote URL must not contain a query or fragment")
+	}
+	return parsed.String(), nil
 }

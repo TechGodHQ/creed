@@ -38,6 +38,11 @@ func NewEmitter(baseDir string) *Emitter {
 // Partial failures do not abort the remaining files.
 func (e *Emitter) Emit(ctx context.Context, target domain.Target, files []ports.EmittedFile) ([]ports.EmitResult, error) {
 	results := make([]ports.EmitResult, 0, len(files))
+	for _, f := range files {
+		if _, err := e.safeOutputPath(f.Path); err != nil {
+			return nil, fmt.Errorf("validate output %q: %w", f.Path, err)
+		}
+	}
 
 	for _, f := range files {
 		result := e.emitFile(f)
@@ -185,7 +190,7 @@ func (e *Emitter) safeOutputPath(relPath string) (string, error) {
 		current = filepath.Join(current, part)
 		info, err := os.Lstat(current)
 		if os.IsNotExist(err) {
-			return current, nil
+			return filepath.Join(e.baseDir, filepath.FromSlash(clean)), nil
 		}
 		if err != nil {
 			return "", err
@@ -199,7 +204,10 @@ func (e *Emitter) safeOutputPath(relPath string) (string, error) {
 
 // emitFile writes a single file atomically, returning the result.
 func (e *Emitter) emitFile(f ports.EmittedFile) ports.EmitResult {
-	fullPath := filepath.Join(e.baseDir, f.Path)
+	fullPath, pathErr := e.safeOutputPath(f.Path)
+	if pathErr != nil {
+		return ports.EmitResult{Path: f.Path, Status: ports.EmitStatusError, Error: pathErr}
+	}
 
 	// Check if the file already exists with identical content.
 	existing, err := os.ReadFile(fullPath)
@@ -282,7 +290,10 @@ func (e *Emitter) emitFile(f ports.EmittedFile) ports.EmitResult {
 func (e *Emitter) Preview(_ context.Context, _ domain.Target, files []ports.EmittedFile) ([]ports.EmitResult, error) {
 	results := make([]ports.EmitResult, 0, len(files))
 	for _, f := range files {
-		fullPath := filepath.Join(e.baseDir, f.Path)
+		fullPath, err := e.safeOutputPath(f.Path)
+		if err != nil {
+			return nil, fmt.Errorf("validate output %q: %w", f.Path, err)
+		}
 		existing, err := os.ReadFile(fullPath)
 		if err == nil && bytes.Equal(existing, f.Content) {
 			results = append(results, ports.EmitResult{Path: f.Path, Status: ports.EmitStatusSkipped})
@@ -346,7 +357,10 @@ func (e *Emitter) Clean(ctx context.Context, target domain.Target) error {
 		return nil
 	}
 	for _, relPath := range target.EmitPaths("") {
-		fullPath := filepath.Join(e.baseDir, relPath)
+		fullPath, err := e.safeOutputPath(relPath)
+		if err != nil {
+			return fmt.Errorf("clean %s: %w", relPath, err)
+		}
 		// RemoveAll handles both files and directories gracefully.
 		if err := os.RemoveAll(fullPath); err != nil {
 			return fmt.Errorf("clean %s: %w", relPath, err)

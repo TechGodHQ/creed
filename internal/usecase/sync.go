@@ -358,6 +358,9 @@ func renderContextOutput(output domain.TargetOutput, inputs renderInputs) ([]por
 func renderSkillDirOutput(output domain.TargetOutput, inputs renderInputs) ([]ports.EmittedFile, error) {
 	files := make([]ports.EmittedFile, 0, len(inputs.skills))
 	for _, skill := range inputs.skills {
+		if err := validateSkillName(skill.Name); err != nil {
+			return nil, fmt.Errorf("skill %q: %w", skill.Name, err)
+		}
 		files = append(files, ports.EmittedFile{
 			Path:    output.Path + skill.Name + ".md",
 			Content: skill.Content,
@@ -411,6 +414,20 @@ func targetOutputs(target *domain.Target) []domain.TargetOutput {
 // isDirPath returns true if the path represents a directory (ends with "/").
 func isDirPath(path string) bool {
 	return strings.HasSuffix(path, "/")
+}
+
+func validateSkillName(name string) error {
+	if strings.TrimSpace(name) == "" {
+		return fmt.Errorf("name is required")
+	}
+	if filepath.IsAbs(filepath.FromSlash(name)) || strings.ContainsAny(name, "/\\") {
+		return fmt.Errorf("name must be a single relative path component")
+	}
+	clean := filepath.Clean(filepath.FromSlash(name))
+	if clean == "." || clean == ".." || clean != filepath.FromSlash(name) {
+		return fmt.Errorf("name must be a single relative path component")
+	}
+	return nil
 }
 
 // aggregateConfigs concatenates all config file contents, separated by

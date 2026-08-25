@@ -164,19 +164,41 @@ Paths in `skills` and `config` are relative to `.creed/`. `output_dir` is relati
 to the project root and is guarded so it cannot escape the project with `..` or
 an absolute path.
 
-## Source models
-
-Local source is the default: Creed reads `.creed/` from the current project.
-Git-backed sharing is available through the service `Pull` path: the git remote
-is cloned or reused from cache, then read with the same manifest, skill, and
-config semantics as a local source. The manifest can record the remote URL:
+For organization-wide context, use an ordered layered source. Shared layers are
+read first and the consumer's local `.creed/` layer is always read last:
 
 ```yaml
 source:
-  type: git
+  type: layered
   path: .creed
-  remote: https://github.com/example/context.git
+  layers:
+    - name: org
+      type: git
+      remote: https://github.com/TechGodHQ/agent-context.git
+      path: .creed
+      ref: 0123456789abcdef0123456789abcdef01234567
 ```
+
+A later layer with the same skill or config name overrides the earlier entry.
+Use distinct names when both entries should be emitted. See
+[`docs/layered-context-migration.md`](docs/layered-context-migration.md) for
+migration and CI guidance.
+
+## Source models
+
+Local source is the default: Creed reads `.creed/` from the current project.
+A direct git source remains supported for compatibility. Layered sharing is the
+v0.4 path: the configured git layers are cloned or reused from cache, then
+composed with the local source through the same SourceReader used by `sync`,
+`diff`, `validate`, and `doctor`.
+
+`creed pull <remote>` records the remote as an `org` layer and composes it; it
+never replaces local `.creed/` files. `creed push` is rejected for layered
+sources so shared context changes go through review instead of clobbering the
+central repository.
+
+See [`docs/layered-context-migration.md`](docs/layered-context-migration.md)
+for the full manifest and migration guide.
 
 Git remotes support public HTTPS URLs, private HTTPS URLs with the configured
 service token, and SSH URLs through either `SSH_AUTH_SOCK` or an explicit
@@ -227,6 +249,7 @@ Creed uses a ports-and-adapters layout:
 - `internal/ports`: source-reader and target-emitter interfaces.
 - `internal/adapters/localfs`: reads `.creed/` and writes target files locally.
 - `internal/adapters/gitremote`: reads `.creed/` from a git remote clone/cache.
+- `internal/adapters/layered`: composes ordered local/git source readers.
 - `internal/usecase`: the sync engine and result model.
 - `internal/service`: the canonical API shared by generated CLI, MCP, and HTTP surfaces.
 - `internal/codegen`: parses the service interface and emits operation descriptors plus
