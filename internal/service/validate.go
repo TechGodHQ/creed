@@ -323,10 +323,6 @@ func (s *Implementation) readValidationManifest(ctx context.Context) (*validatio
 	return &manifest, nil
 }
 
-func (s *Implementation) validateEntry(result *ValidationResult, kind, name, sourcePath string, seenNames, seenPaths map[string]string) {
-	s.validateEntryAt(result, s.creedDir(), kind, name, sourcePath, seenNames, seenPaths)
-}
-
 func (s *Implementation) validateEntryAt(result *ValidationResult, sourceRoot, kind, name, sourcePath string, seenNames, seenPaths map[string]string) {
 	label := kind + " " + fmt.Sprintf("%q", name)
 	if strings.TrimSpace(name) == "" {
