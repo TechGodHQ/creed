@@ -317,8 +317,15 @@ func (s *Source) remoteRefs(ctx context.Context) ([]*plumbing.Reference, error) 
 }
 
 func resolveRemoteRef(refs []*plumbing.Reference, requested string) (string, error) {
+	sha, _, err := resolveRemoteRefForFetch(refs, requested)
+	return sha, err
+}
+
+func resolveRemoteRefForFetch(refs []*plumbing.Reference, requested string) (string, string, error) {
 	if isCommitSHA(requested) {
-		return strings.ToLower(requested), nil
+		// The fetch step verifies that this object is actually reachable from
+		// the remote; syntactic SHA validation alone is not sufficient.
+		return strings.ToLower(requested), requested, nil
 	}
 	names := []string{}
 	if strings.HasPrefix(requested, "refs/") {
@@ -342,12 +349,12 @@ func resolveRemoteRef(refs []*plumbing.Reference, requested string) (string, err
 		peeledName := plumbing.ReferenceName(name + "^{}").String()
 		for _, ref := range refs {
 			if ref.Name().String() == peeledName {
-				return ref.Hash().String(), nil
+				return ref.Hash().String(), name, nil
 			}
 		}
-		return direct.Hash().String(), nil
+		return direct.Hash().String(), name, nil
 	}
-	return "", fmt.Errorf("reference %q not found in remote", requested)
+	return "", "", fmt.Errorf("reference %q not found in remote", requested)
 }
 
 // ensureCloned clones the repository on first access. Subsequent calls within
@@ -482,17 +489,23 @@ func (s *Source) clone(ctx context.Context) error {
 		Depth: 1,
 		Auth:  auth,
 	}
-	var checkoutSHA string
+	var checkoutSHA, fetchRef string
 	if s.ref != "" {
-		checkoutSHA, err = s.remoteHeadSHA(ctx)
+		refs, refsErr := s.remoteRefs(ctx)
+		if refsErr != nil {
+			os.RemoveAll(cloneDir)
+			return refsErr
+		}
+		checkoutSHA, fetchRef, err = resolveRemoteRefForFetch(refs, s.ref)
 		if err != nil {
 			os.RemoveAll(cloneDir)
 			return err
 		}
-		// Fetch the complete ref set so branch, lightweight-tag, annotated-tag,
-		// and full-SHA pins all resolve to the same checked-out commit.
+		// Do not rely on the default branch being the source of the pinned
+		// object. The explicit fetch below brings the requested ref/object in.
 		cloneOpts.Tags = git.AllTags
 		cloneOpts.Depth = 0
+		cloneOpts.NoCheckout = true
 	}
 
 	repo, err := git.PlainCloneContext(ctx, cloneDir, false, cloneOpts)
@@ -503,6 +516,34 @@ func (s *Source) clone(ctx context.Context) error {
 	}
 
 	if s.ref != "" {
+		fetchOptions := &git.FetchOptions{
+			RemoteName: "origin",
+			RefSpecs:   []config.RefSpec{config.RefSpec("+" + fetchRef + ":refs/creed/pinned")},
+			Depth:      0,
+			Auth:       auth,
+			Tags:       git.AllTags,
+			Force:      true,
+		}
+		fetchErr := repo.FetchContext(ctx, fetchOptions)
+		if fetchErr != nil && !errors.Is(fetchErr, git.NoErrAlreadyUpToDate) {
+			// Some servers reject exact SHA refspecs even when the object is
+			// reachable. Fetch all heads/tags as a safe fallback.
+			fallback := &git.FetchOptions{
+				RemoteName: "origin",
+				RefSpecs: []config.RefSpec{
+					config.RefSpec("+refs/heads/*:refs/remotes/origin/*"),
+					config.RefSpec("+refs/tags/*:refs/tags/*"),
+				},
+				Depth: 0,
+				Auth:  auth,
+				Tags:  git.AllTags,
+				Force: true,
+			}
+			if fallbackErr := repo.FetchContext(ctx, fallback); fallbackErr != nil && !errors.Is(fallbackErr, git.NoErrAlreadyUpToDate) {
+				os.RemoveAll(cloneDir)
+				return classifyGitError("fetch reference", s.remoteURL, fallbackErr)
+			}
+		}
 		worktree, err := repo.Worktree()
 		if err != nil {
 			os.RemoveAll(cloneDir)

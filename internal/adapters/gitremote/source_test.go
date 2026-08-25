@@ -508,3 +508,52 @@ func TestGitRemoteRejectsEscapedCacheMetadata(t *testing.T) {
 		t.Fatal("ReadManifest trusted cache metadata outside the configured cache")
 	}
 }
+
+func TestGitRemoteNonDefaultBranchAndSHARefs(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping git integration test in short mode")
+	}
+	bareURL := createBareRepo(t)
+	workDir := t.TempDir()
+	for _, args := range [][]string{
+		{"git", "clone", bareURL, workDir},
+		{"git", "-C", workDir, "config", "user.name", "Branch Test"},
+		{"git", "-C", workDir, "config", "user.email", "branch@example.invalid"},
+		{"git", "-C", workDir, "checkout", "-b", "feature-only"},
+	} {
+		if output, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, output)
+		}
+	}
+	featureSkill := filepath.Join(workDir, ".creed", "skills", "code-review.md")
+	if err := os.WriteFile(featureSkill, []byte("# Feature-only branch"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	for _, args := range [][]string{
+		{"git", "-C", workDir, "add", ".creed/skills/code-review.md"},
+		{"git", "-C", workDir, "commit", "-m", "feature-only context"},
+		{"git", "-C", workDir, "push", "origin", "HEAD:refs/heads/feature-only"},
+	} {
+		if output, err := exec.Command(args[0], args[1:]...).CombinedOutput(); err != nil {
+			t.Fatalf("%s: %v\n%s", strings.Join(args, " "), err, output)
+		}
+	}
+	output, err := exec.Command("git", "-C", workDir, "rev-parse", "HEAD").CombinedOutput()
+	if err != nil {
+		t.Fatalf("git rev-parse: %v: %s", err, output)
+	}
+	sha := strings.TrimSpace(string(output))
+	for _, ref := range []string{"feature-only", sha} {
+		src := NewSourceWithOptions(SourceOptions{RemoteURL: bareURL, Ref: ref})
+		skill, readErr := src.ReadSkill(context.Background(), "code-review")
+		if readErr != nil {
+			t.Fatalf("read ref %q: %v", ref, readErr)
+		}
+		if string(skill.Content) != "# Feature-only branch" {
+			t.Fatalf("ref %q content = %q, want feature-only branch", ref, skill.Content)
+		}
+		if cleanupErr := src.Cleanup(); cleanupErr != nil {
+			t.Fatalf("cleanup ref %q: %v", ref, cleanupErr)
+		}
+	}
+}

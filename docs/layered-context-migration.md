@@ -83,3 +83,10 @@ repository would reintroduce the v0.3 clobbering failure mode.
 - `WithCacheDir` enables commit-aware clone caching. A pinned commit reuses its
   cached clone; an unpinned branch is refreshed when its remote HEAD changes.
 - `creed doctor` reports the configured remote with embedded passwords removed.
+
+For CI-secret-backed end-to-end verification, set
+`CREED_RUN_GITHUB_AUTH_INTEGRATION=1` together with
+`CREED_GITHUB_HTTPS_REMOTE`/`CREED_GITHUB_HTTPS_TOKEN` and/or
+`CREED_GITHUB_SSH_REMOTE`. The integration test exercises the complete layered
+service path and never prints or stores the token. SSH mode uses the runner's
+`SSH_AUTH_SOCK` or `CREED_GIT_SSH_KEY` configuration.
