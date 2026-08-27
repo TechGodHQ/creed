@@ -6,7 +6,7 @@ import (
 	"github.com/techgodhq/creed/internal/service"
 )
 
-const version = "0.3.0"
+const version = "0.4.1"
 
 var rootCmd = &cobra.Command{
 	Use:     "creed",

@@ -6,6 +6,18 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] — 2026-08-27
+
+Corrective release for the layered-context feature shipped in v0.4.0. The
+published v0.4.0 artifact incorrectly reported its CLI and MCP implementation
+version as 0.3.0. That immutable tag remains unchanged; install v0.4.1 for the
+layered-context release.
+
+### Fixed
+
+- CLI `--version` and the MCP server implementation version now report
+  `0.4.1`.
+
 ### Added
 
 - **Layered context sources.** Compose cached git organization context with
@@ -71,6 +83,7 @@ so the version number is permanently associated with it. **The 0.3.0 release
 above supersedes everything in it.** Do not install v0.2.0; its release
 notes are preserved on GitHub only for historical reference.
 
+[0.4.1]: https://github.com/techgodhq/creed/releases/tag/v0.4.1
 [0.3.0]: https://github.com/techgodhq/creed/releases/tag/v0.3.0
 [0.1.0]: https://github.com/techgodhq/creed/releases/tag/v0.1.0
 [0.2.0]: https://github.com/techgodhq/creed/releases/tag/v0.2.0
