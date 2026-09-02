@@ -56,6 +56,22 @@ jobs:
       - name: Run golangci-lint
         run: golangci-lint run ./...
 
+  creed:
+    name: Creed context drift
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Install released creed
+        run: go install github.com/techgodhq/creed@v0.4.1
+
+      - name: Emitted agent context must match the composed source
+        run: creed diff
+
   security:
     name: Secret Scan
     runs-on: ubuntu-latest

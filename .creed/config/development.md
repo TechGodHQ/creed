@@ -32,12 +32,6 @@ are idempotent.
 - Tests should cover real behavior, not just compile-time existence.
 - Preserve deterministic output ordering for generated/synced files.
 
-## Git / PR Rules
-
-- Commits should use Shiv's global git identity so GitHub verification works.
-- Runner-generated commits may include `Co-authored-by: Archon <archon@purelymail.com>` for attribution.
-- Auto-merge is permitted per the standing gate policy: CI green and gate confidence >= 0.80.
-
 ## OpenSpec
 
 OpenSpec CLI is not installed on this machine. Edit files directly under `openspec/changes/<change>/` when creating or updating specs.
