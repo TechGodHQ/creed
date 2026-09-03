@@ -69,8 +69,8 @@ func TestServiceSyncEndToEndDryRunReportsDiffWithoutWriting(t *testing.T) {
 		t.Fatalf("fresh dry-run sync: %v", err)
 	}
 	freshClaude := onlyTarget(t, fresh, "claude")
-	if len(freshClaude.Files) != 3 {
-		t.Fatalf("fresh dry-run reported %d files, want 3", len(freshClaude.Files))
+	if len(freshClaude.Files) != 4 {
+		t.Fatalf("fresh dry-run reported %d files, want 4", len(freshClaude.Files))
 	}
 	for _, file := range freshClaude.Files {
 		if file.Status != usecase.StatusWouldWrite {
@@ -88,8 +88,8 @@ func TestServiceSyncEndToEndDryRunReportsDiffWithoutWriting(t *testing.T) {
 		t.Fatalf("idempotent dry-run sync: %v", err)
 	}
 	idempotentClaude := onlyTarget(t, idempotent, "claude")
-	if idempotentClaude.FilesSkipped != 3 {
-		t.Fatalf("idempotent dry-run skipped = %d, want 3", idempotentClaude.FilesSkipped)
+	if idempotentClaude.FilesSkipped != 4 {
+		t.Fatalf("idempotent dry-run skipped = %d, want 4", idempotentClaude.FilesSkipped)
 	}
 	for _, file := range idempotentClaude.Files {
 		if file.Status != usecase.StatusSkipped {
@@ -172,6 +172,63 @@ config:
 	writeFile(t, root, ".creed/skills/testing.md", "# Testing\n\nRun the smallest meaningful test first.\n")
 	writeFile(t, root, ".creed/config/project.md", "# Project Context\n\nThis context is shared across tools.\n")
 	return root
+}
+
+func TestGeneratedAttributesPreserveUserRulesAndAreIdempotent(t *testing.T) {
+	root := newFixtureProject(t)
+	writeFile(t, root, ".gitattributes", "*.lock binary\n")
+
+	first, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{Target: "claude"})
+	if err != nil || first.HasErrors() {
+		t.Fatalf("first sync: result=%#v err=%v", first, err)
+	}
+	attributes := filepath.Join(root, ".gitattributes")
+	assertFileContains(t, attributes, "*.lock binary")
+	assertFileContains(t, attributes, "# creed:generated claude begin")
+	assertFileContains(t, attributes, "CLAUDE.md linguist-generated=true")
+	assertFileContains(t, attributes, ".claude/skills/review.md linguist-generated=true")
+
+	second, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{Target: "claude"})
+	if err != nil || second.HasErrors() || second.TotalFilesWritten() != 0 {
+		t.Fatalf("idempotent sync: result=%#v err=%v", second, err)
+	}
+	diff, err := service.New(root).Diff(context.Background(), usecase.DiffOptions{Target: "claude"})
+	if err != nil || diff.HasDifferences() {
+		t.Fatalf("sync/diff disagreement: diff=%#v err=%v", diff, err)
+	}
+
+	// A CRLF checkout must not duplicate or rewrite Creed-owned blocks.
+	contents, err := os.ReadFile(attributes)
+	if err != nil {
+		t.Fatalf("read attributes for CRLF test: %v", err)
+	}
+	if err := os.WriteFile(attributes, []byte(strings.ReplaceAll(string(contents), "\n", "\r\n")), 0644); err != nil {
+		t.Fatalf("write CRLF attributes: %v", err)
+	}
+	crlf, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{Target: "claude"})
+	if err != nil || crlf.HasErrors() || crlf.TotalFilesWritten() != 0 {
+		t.Fatalf("CRLF idempotent sync: result=%#v err=%v", crlf, err)
+	}
+
+	// Disabled targets retain Creed-owned attribution blocks, matching the
+	// stale-output policy: Creed reports stale output rather than deleting
+	// metadata that may now coexist with user-authored rules.
+	manifest := filepath.Join(root, ".creed", "manifest.yaml")
+	manifestContents, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	disabled := strings.Replace(string(manifestContents), "name: claude\n    enabled: true", "name: claude\n    enabled: false", 1)
+	if disabled == string(manifestContents) {
+		t.Fatal("fixture did not disable claude target")
+	}
+	if err := os.WriteFile(manifest, []byte(disabled), 0644); err != nil {
+		t.Fatalf("disable claude target: %v", err)
+	}
+	if _, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{}); err != nil {
+		t.Fatalf("sync after disabling target: %v", err)
+	}
+	assertFileContains(t, attributes, "# creed:generated claude begin")
 }
 
 func writeFile(t *testing.T, root, rel, content string) {

@@ -1,0 +1,12 @@
+# creed:generated claude begin
+.claude/skills/github-pr-review.md linguist-generated=true
+.claude/skills/openspec-development.md linguist-generated=true
+CLAUDE.md linguist-generated=true
+# creed:generated claude end
+# creed:generated codex begin
+AGENTS.md linguist-generated=true
+# creed:generated codex end
+# creed:generated cursor begin
+.cursor/rules/github-pr-review.md linguist-generated=true
+.cursor/rules/openspec-development.md linguist-generated=true
+# creed:generated cursor end

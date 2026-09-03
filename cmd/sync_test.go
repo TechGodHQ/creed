@@ -16,7 +16,7 @@ func TestSyncCommandDryRunSummaryIncludesWouldWriteCount(t *testing.T) {
 	out := executeRootCommandInDir(t, projectDir, "sync", "--target", "claude", "--dry-run")
 
 	output := out.String()
-	if !strings.Contains(output, "claude: 0 written, 1 would_write, 0 skipped, 0 failed") {
+	if !strings.Contains(output, "claude: 0 written, 2 would_write, 0 skipped, 0 failed") {
 		t.Fatalf("dry-run summary did not include would_write count; output:\n%s", output)
 	}
 	if !strings.Contains(output, "  would_write CLAUDE.md") {

@@ -74,6 +74,7 @@ config:
 `, map[string]string{
 		".creed/config/repo.md": "# Repo rules\n",
 		"AGENTS.md":             "# Org rules\n\n---\n\n# Repo rules\n",
+		".gitattributes":        "# creed:generated codex begin\nAGENTS.md linguist-generated=true\n# creed:generated codex end\n",
 	})
 
 	ctx := context.Background()
