@@ -181,8 +181,7 @@ func (e *SyncEngine) syncTarget(
 	// inspect their destination should report skipped for files that are already
 	// identical; generic emitters fall back to reporting the candidate set.
 	if opts.DryRun {
-		contentFiles, _ := splitAttributeFile(files)
-		tr = e.previewTarget(ctx, tr, target, contentFiles)
+		tr = e.previewTarget(ctx, tr, target, files)
 		tr.Duration = time.Since(start)
 		return tr
 	}

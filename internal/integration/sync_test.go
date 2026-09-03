@@ -69,8 +69,8 @@ func TestServiceSyncEndToEndDryRunReportsDiffWithoutWriting(t *testing.T) {
 		t.Fatalf("fresh dry-run sync: %v", err)
 	}
 	freshClaude := onlyTarget(t, fresh, "claude")
-	if len(freshClaude.Files) != 3 {
-		t.Fatalf("fresh dry-run reported %d files, want 3", len(freshClaude.Files))
+	if len(freshClaude.Files) != 4 {
+		t.Fatalf("fresh dry-run reported %d files, want 4", len(freshClaude.Files))
 	}
 	for _, file := range freshClaude.Files {
 		if file.Status != usecase.StatusWouldWrite {
@@ -88,8 +88,8 @@ func TestServiceSyncEndToEndDryRunReportsDiffWithoutWriting(t *testing.T) {
 		t.Fatalf("idempotent dry-run sync: %v", err)
 	}
 	idempotentClaude := onlyTarget(t, idempotent, "claude")
-	if idempotentClaude.FilesSkipped != 3 {
-		t.Fatalf("idempotent dry-run skipped = %d, want 3", idempotentClaude.FilesSkipped)
+	if idempotentClaude.FilesSkipped != 4 {
+		t.Fatalf("idempotent dry-run skipped = %d, want 4", idempotentClaude.FilesSkipped)
 	}
 	for _, file := range idempotentClaude.Files {
 		if file.Status != usecase.StatusSkipped {
