@@ -103,18 +103,17 @@ func replaceAttributeBlock(existing, target string, paths []string) (string, err
 	if inside {
 		return "", fmt.Errorf("unterminated Creed attribute block for target %q", target)
 	}
-	// Preserve the user file as-is apart from replacing our own block; ensure
-	// exactly one newline separator before an appended managed block.
-	for len(out) > 0 && out[len(out)-1] == "" {
-		out = out[:len(out)-1]
+	// Preserve user-authored bytes outside Creed blocks, including deliberate
+	// trailing blank lines. Add only the separator needed when the existing
+	// content has no terminal newline.
+	prefix := strings.Join(out, "\n")
+	if prefix != "" && !strings.HasSuffix(prefix, "\n") {
+		prefix += "\n"
 	}
-	if len(out) > 0 {
-		out = append(out, "")
-	}
-	out = append(out, begin)
+	block := append([]string{begin}, make([]string, 0, len(paths)+2)...)
 	for _, path := range paths {
-		out = append(out, path+" linguist-generated=true")
+		block = append(block, path+" linguist-generated=true")
 	}
-	out = append(out, end, "")
-	return strings.Join(out, "\n"), nil
+	block = append(block, end, "")
+	return prefix + strings.Join(block, "\n"), nil
 }

@@ -205,10 +205,18 @@ func (e *SyncEngine) syncTarget(
 		return tr
 	}
 	if len(attributeFiles) > 0 {
-		if _, err := e.emitter.Emit(ctx, *target, attributeFiles); err != nil {
+		attributeResults, err := e.emitter.Emit(ctx, *target, attributeFiles)
+		if err != nil {
 			tr.Error = fmt.Errorf("emit generated attributes for target %q: %w", name, err)
 			tr.Duration = time.Since(start)
 			return tr
+		}
+		for _, attributeResult := range attributeResults {
+			if attributeResult.Status == ports.EmitStatusError {
+				tr.Error = fmt.Errorf("emit generated attributes for target %q: %w", name, attributeResult.Error)
+				tr.Duration = time.Since(start)
+				return tr
+			}
 		}
 	}
 
