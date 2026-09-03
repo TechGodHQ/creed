@@ -83,6 +83,10 @@ func (e *SyncEngine) Diff(ctx context.Context, opts DiffOptions) (*DiffResult, e
 		if err != nil {
 			return nil, fmt.Errorf("render target %q: %w", config.Name, err)
 		}
+		desired, err = e.withGeneratedAttributes(ctx, *target, desired)
+		if err != nil {
+			return nil, fmt.Errorf("render generated attributes for target %q: %w", config.Name, err)
+		}
 		existing, err := inventory.ExistingFiles(ctx, *target, desired)
 		if err != nil {
 			return nil, fmt.Errorf("inventory target %q: %w", config.Name, err)

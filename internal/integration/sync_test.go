@@ -174,6 +174,30 @@ config:
 	return root
 }
 
+func TestGeneratedAttributesPreserveUserRulesAndAreIdempotent(t *testing.T) {
+	root := newFixtureProject(t)
+	writeFile(t, root, ".gitattributes", "*.lock binary\n")
+
+	first, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{Target: "claude"})
+	if err != nil || first.HasErrors() {
+		t.Fatalf("first sync: result=%#v err=%v", first, err)
+	}
+	attributes := filepath.Join(root, ".gitattributes")
+	assertFileContains(t, attributes, "*.lock binary")
+	assertFileContains(t, attributes, "# creed:generated claude begin")
+	assertFileContains(t, attributes, "CLAUDE.md linguist-generated=true")
+	assertFileContains(t, attributes, ".claude/skills/review.md linguist-generated=true")
+
+	second, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{Target: "claude"})
+	if err != nil || second.HasErrors() || second.TotalFilesWritten() != 0 {
+		t.Fatalf("idempotent sync: result=%#v err=%v", second, err)
+	}
+	diff, err := service.New(root).Diff(context.Background(), usecase.DiffOptions{Target: "claude"})
+	if err != nil || diff.HasDifferences() {
+		t.Fatalf("sync/diff disagreement: diff=%#v err=%v", diff, err)
+	}
+}
+
 func writeFile(t *testing.T, root, rel, content string) {
 	t.Helper()
 	path := filepath.Join(root, filepath.FromSlash(rel))

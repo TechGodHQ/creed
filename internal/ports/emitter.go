@@ -58,3 +58,11 @@ type ExistingFile struct {
 type OutputInventory interface {
 	ExistingFiles(ctx context.Context, target domain.Target, candidates []EmittedFile) ([]ExistingFile, error)
 }
+
+// GeneratedAttributeManager optionally produces the Creed-owned portion of a
+// repository's .gitattributes file for a target's rendered outputs. The
+// returned file preserves user-authored attributes and is included by both sync
+// and diff so their metadata view cannot drift.
+type GeneratedAttributeManager interface {
+	GeneratedAttributes(ctx context.Context, target domain.Target, files []EmittedFile) (*EmittedFile, error)
+}

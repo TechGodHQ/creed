@@ -170,12 +170,19 @@ func (e *SyncEngine) syncTarget(
 		tr.Duration = time.Since(start)
 		return tr
 	}
+	files, err = e.withGeneratedAttributes(ctx, *target, files)
+	if err != nil {
+		tr.Error = fmt.Errorf("prepare generated attributes for target %q: %w", name, err)
+		tr.Duration = time.Since(start)
+		return tr
+	}
 
 	// Dry-run: report what would change without writing. Emitters that can
 	// inspect their destination should report skipped for files that are already
 	// identical; generic emitters fall back to reporting the candidate set.
 	if opts.DryRun {
-		tr = e.previewTarget(ctx, tr, target, files)
+		contentFiles, _ := splitAttributeFile(files)
+		tr = e.previewTarget(ctx, tr, target, contentFiles)
 		tr.Duration = time.Since(start)
 		return tr
 	}
@@ -189,12 +196,21 @@ func (e *SyncEngine) syncTarget(
 		}
 	}
 
-	// Emit files. The emitter handles per-file skip-on-identical logic.
-	emitResults, err := e.emitter.Emit(ctx, *target, files)
+	// Emit content files, then update metadata separately so normal sync output
+	// continues to describe only the requested target artifacts.
+	contentFiles, attributeFiles := splitAttributeFile(files)
+	emitResults, err := e.emitter.Emit(ctx, *target, contentFiles)
 	if err != nil {
 		tr.Error = fmt.Errorf("emit to target %q: %w", name, err)
 		tr.Duration = time.Since(start)
 		return tr
+	}
+	if len(attributeFiles) > 0 {
+		if _, err := e.emitter.Emit(ctx, *target, attributeFiles); err != nil {
+			tr.Error = fmt.Errorf("emit generated attributes for target %q: %w", name, err)
+			tr.Duration = time.Since(start)
+			return tr
+		}
 	}
 
 	// Map emitter results to use-case file results and aggregate counts.
@@ -300,6 +316,29 @@ func prefixOutputPath(outputDir, path string) string {
 		joined += "/"
 	}
 	return joined
+}
+
+func splitAttributeFile(files []ports.EmittedFile) (content, attributes []ports.EmittedFile) {
+	for _, file := range files {
+		if file.Path == ".gitattributes" {
+			attributes = append(attributes, file)
+			continue
+		}
+		content = append(content, file)
+	}
+	return content, attributes
+}
+
+func (e *SyncEngine) withGeneratedAttributes(ctx context.Context, target domain.Target, files []ports.EmittedFile) ([]ports.EmittedFile, error) {
+	manager, ok := e.emitter.(ports.GeneratedAttributeManager)
+	if !ok {
+		return files, nil
+	}
+	attributes, err := manager.GeneratedAttributes(ctx, target, files)
+	if err != nil || attributes == nil {
+		return files, err
+	}
+	return append(files, *attributes), nil
 }
 
 // prepareFiles builds the list of files to emit for a target based on
