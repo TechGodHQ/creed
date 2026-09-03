@@ -204,6 +204,16 @@ func (e *SyncEngine) syncTarget(
 		tr.Duration = time.Since(start)
 		return tr
 	}
+	// Do not claim a file is generated unless every content artifact was
+	// successfully emitted. LocalFS may return per-file failures without an
+	// aggregate error.
+	for _, emitResult := range emitResults {
+		if emitResult.Status == ports.EmitStatusError {
+			tr.Error = fmt.Errorf("emit to target %q: %w", name, emitResult.Error)
+			tr.Duration = time.Since(start)
+			return tr
+		}
+	}
 	if len(attributeFiles) > 0 {
 		attributeResults, err := e.emitter.Emit(ctx, *target, attributeFiles)
 		if err != nil {

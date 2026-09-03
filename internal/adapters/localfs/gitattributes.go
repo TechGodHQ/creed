@@ -71,13 +71,24 @@ func replaceAttributeBlock(existing, target string, paths []string) (string, err
 	end := "# creed:generated " + target + " end"
 	blockLines := append([]string{begin}, make([]string, 0, len(paths)+2)...)
 	for _, path := range paths {
-		blockLines = append(blockLines, path+" linguist-generated=true")
+		blockLines = append(blockLines, attributePattern(path)+" linguist-generated=true")
 	}
 	blockLines = append(blockLines, end)
-	if strings.Contains(existing, strings.Join(blockLines, "\n")) {
+
+	// Preserve a consistent CRLF checkout verbatim outside Creed blocks. Mixed
+	// line endings are rejected rather than silently rewriting user content.
+	lineEnding := "\n"
+	normalized := strings.ReplaceAll(existing, "\r\n", "\n")
+	if strings.Contains(normalized, "\r") {
+		return "", fmt.Errorf("mixed line endings in %s", attributesPath)
+	}
+	if strings.Contains(existing, "\r\n") {
+		lineEnding = "\r\n"
+	}
+	if strings.Contains(normalized, strings.Join(blockLines, "\n")) {
 		return existing, nil
 	}
-	lines := strings.Split(existing, "\n")
+	lines := strings.Split(normalized, "\n")
 	out := make([]string, 0, len(lines)+len(paths)+3)
 	inside := false
 	found := false
@@ -106,14 +117,31 @@ func replaceAttributeBlock(existing, target string, paths []string) (string, err
 	// Preserve user-authored bytes outside Creed blocks, including deliberate
 	// trailing blank lines. Add only the separator needed when the existing
 	// content has no terminal newline.
-	prefix := strings.Join(out, "\n")
-	if prefix != "" && !strings.HasSuffix(prefix, "\n") {
-		prefix += "\n"
+	prefix := strings.Join(out, lineEnding)
+	if prefix != "" && !strings.HasSuffix(prefix, lineEnding) {
+		prefix += lineEnding
 	}
 	block := append([]string{begin}, make([]string, 0, len(paths)+2)...)
 	for _, path := range paths {
-		block = append(block, path+" linguist-generated=true")
+		block = append(block, attributePattern(path)+" linguist-generated=true")
 	}
 	block = append(block, end, "")
-	return prefix + strings.Join(block, "\n"), nil
+	return prefix + strings.Join(block, lineEnding), nil
+}
+
+// attributePattern escapes a literal repository-relative path for Git's
+// .gitattributes pattern grammar.
+func attributePattern(path string) string {
+	replacer := strings.NewReplacer(
+		"\\", "\\\\",
+		" ", "\\ ",
+		"	", "\\	",
+		"*", "\\*",
+		"?", "\\?",
+		"[", "\\[",
+		"]", "\\]",
+		"#", "\\#",
+		"!", "\\!",
+	)
+	return replacer.Replace(path)
 }

@@ -196,6 +196,39 @@ func TestGeneratedAttributesPreserveUserRulesAndAreIdempotent(t *testing.T) {
 	if err != nil || diff.HasDifferences() {
 		t.Fatalf("sync/diff disagreement: diff=%#v err=%v", diff, err)
 	}
+
+	// A CRLF checkout must not duplicate or rewrite Creed-owned blocks.
+	contents, err := os.ReadFile(attributes)
+	if err != nil {
+		t.Fatalf("read attributes for CRLF test: %v", err)
+	}
+	if err := os.WriteFile(attributes, []byte(strings.ReplaceAll(string(contents), "\n", "\r\n")), 0644); err != nil {
+		t.Fatalf("write CRLF attributes: %v", err)
+	}
+	crlf, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{Target: "claude"})
+	if err != nil || crlf.HasErrors() || crlf.TotalFilesWritten() != 0 {
+		t.Fatalf("CRLF idempotent sync: result=%#v err=%v", crlf, err)
+	}
+
+	// Disabled targets retain Creed-owned attribution blocks, matching the
+	// stale-output policy: Creed reports stale output rather than deleting
+	// metadata that may now coexist with user-authored rules.
+	manifest := filepath.Join(root, ".creed", "manifest.yaml")
+	manifestContents, err := os.ReadFile(manifest)
+	if err != nil {
+		t.Fatalf("read manifest: %v", err)
+	}
+	disabled := strings.Replace(string(manifestContents), "name: claude\n    enabled: true", "name: claude\n    enabled: false", 1)
+	if disabled == string(manifestContents) {
+		t.Fatal("fixture did not disable claude target")
+	}
+	if err := os.WriteFile(manifest, []byte(disabled), 0644); err != nil {
+		t.Fatalf("disable claude target: %v", err)
+	}
+	if _, err := service.New(root).Sync(context.Background(), usecase.SyncOptions{}); err != nil {
+		t.Fatalf("sync after disabling target: %v", err)
+	}
+	assertFileContains(t, attributes, "# creed:generated claude begin")
 }
 
 func writeFile(t *testing.T, root, rel, content string) {
