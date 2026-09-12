@@ -5,6 +5,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 
 	"github.com/techgodhq/creed/internal/adapters/localfs"
 	"github.com/techgodhq/creed/internal/domain"
+	"github.com/techgodhq/creed/internal/skillmeta"
 )
 
 // ValidationDiagnostic identifies one manifest or source-health finding.
@@ -122,6 +124,28 @@ func (s *Implementation) Validate(ctx context.Context) (ValidationResult, error)
 	}
 
 	validateTargetConfigs(&result, manifest.Targets, "manifest.yaml")
+
+	if len(manifest.Skills) > 0 {
+		hasSkillDirOutput := false
+		for _, target := range manifest.Targets {
+			if !target.Enabled {
+				continue
+			}
+			known, lookupErr := domain.LookupTarget(target.Name)
+			if lookupErr != nil {
+				continue
+			}
+			for _, output := range known.Outputs("") {
+				if output.Kind == domain.OutputKindSkillDir {
+					hasSkillDirOutput = true
+					break
+				}
+			}
+		}
+		if !hasSkillDirOutput {
+			result.addWarning("skills_have_no_output", fmt.Sprintf("%d declared skill(s) but no enabled target has a skill output; skills will not be emitted anywhere", len(manifest.Skills)), "manifest.yaml")
+		}
+	}
 
 	localNames := map[string]struct{}{}
 	if sourceType != "git" {
@@ -404,6 +428,14 @@ func (s *Implementation) validateEntryAt(result *ValidationResult, sourceRoot, k
 		result.addError("escaped_source_path", fmt.Sprintf("%s resolves outside source directory", label), cleanPath)
 		return
 	}
+	if info.IsDir() {
+		if kind != "skill" {
+			result.addError("non_regular_source_file", fmt.Sprintf("%s source must be a regular file", label), cleanPath)
+			return
+		}
+		s.validateSkillDirectory(result, label, name, path, cleanPath)
+		return
+	}
 	if !info.Mode().IsRegular() {
 		result.addError("non_regular_source_file", fmt.Sprintf("%s source must be a regular file", label), cleanPath)
 		return
@@ -419,6 +451,74 @@ func (s *Implementation) validateEntryAt(result *ValidationResult, sourceRoot, k
 	}
 	if strings.TrimSpace(string(content)) == "" {
 		result.addWarning("empty_source_content", fmt.Sprintf("%s source file is empty", label), cleanPath)
+	}
+	if kind == "skill" {
+		validateSkillFrontmatter(result, label, name, content, cleanPath)
+	}
+}
+
+// validateSkillDirectory validates a directory-shaped skill entry: SKILL.md
+// must exist as a regular file, support files must be regular and
+// non-symlinked, and SKILL.md frontmatter must carry a matching name and a
+// description when frontmatter is present at all.
+func (s *Implementation) validateSkillDirectory(result *ValidationResult, label, name, dirPath, cleanPath string) {
+	skillMD := filepath.Join(dirPath, "SKILL.md")
+	info, err := os.Lstat(skillMD)
+	if err != nil {
+		result.addError("missing_source_file", fmt.Sprintf("%s directory skill must contain SKILL.md", label), cleanPath)
+		return
+	}
+	if info.Mode()&os.ModeSymlink != 0 || !info.Mode().IsRegular() {
+		result.addError("non_regular_source_file", fmt.Sprintf("%s SKILL.md must be a regular file", label), cleanPath+"/SKILL.md")
+		return
+	}
+	walkErr := filepath.WalkDir(dirPath, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == dirPath {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			result.addError("symlink_source_file", fmt.Sprintf("%s skill directory must not contain symlinks (%s)", label, relSlash(dirPath, path)), cleanPath)
+			return filepath.SkipDir
+		}
+		if d.IsDir() {
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			result.addError("non_regular_source_file", fmt.Sprintf("%s skill directory must contain only regular files (%s)", label, relSlash(dirPath, path)), cleanPath)
+		}
+		return nil
+	})
+	if walkErr != nil {
+		result.addError("unreadable_source_file", fmt.Sprintf("%s skill directory cannot be walked: %v", label, walkErr), cleanPath)
+	}
+	content, readErr := os.ReadFile(skillMD)
+	if readErr != nil {
+		result.addError("unreadable_source_file", fmt.Sprintf("%s SKILL.md cannot be read", label), cleanPath+"/SKILL.md")
+		return
+	}
+	validateSkillFrontmatter(result, label, name, content, cleanPath+"/SKILL.md")
+}
+
+// validateSkillFrontmatter enforces the skill contract on SKILL.md content:
+// when YAML frontmatter exists, its name must match the manifest entry name
+// and a description must be present. Skills without frontmatter are legal but
+// warned about, because downstream tools (Claude Code, Hermes) discover
+// skills through these fields.
+func validateSkillFrontmatter(result *ValidationResult, label, name string, content []byte, path string) {
+	fm, found, problems := skillmeta.Parse(content)
+	if !found {
+		result.addWarning("missing_skill_frontmatter", fmt.Sprintf("%s has no YAML frontmatter; name/description discovery may not work", label), path)
+		return
+	}
+	for _, problem := range problems {
+		result.addError(problem.Code, fmt.Sprintf("%s %s", label, problem.Message), path)
+		return
+	}
+	for _, problem := range skillmeta.Validate(name, fm) {
+		result.addError(problem.Code, fmt.Sprintf("%s %s", label, problem.Message), path)
 	}
 }
 
@@ -460,4 +560,14 @@ func (r *ValidationResult) addError(code, message, path string) {
 
 func (r *ValidationResult) addWarning(code, message, path string) {
 	r.Warnings = append(r.Warnings, ValidationDiagnostic{Severity: "warning", Code: code, Message: message, Path: path})
+}
+
+// relSlash returns path relative to base as a slash-separated path, falling
+// back to the full path when the two are not related.
+func relSlash(base, path string) string {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }

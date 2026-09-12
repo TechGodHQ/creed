@@ -15,6 +15,7 @@ import (
 
 	"github.com/techgodhq/creed/internal/domain"
 	"github.com/techgodhq/creed/internal/ports"
+	"github.com/techgodhq/creed/internal/skillmeta"
 )
 
 // previewEmitter is an optional emitter capability for dry-run diff previews.
@@ -411,11 +412,51 @@ func renderContextOutput(output domain.TargetOutput, inputs renderInputs) ([]por
 	return []ports.EmittedFile{{Path: output.Path, Content: content}}, nil
 }
 
+// skillFileName is the required markdown entrypoint of a directory-shaped
+// skill; it must match localfs.skillFileName.
+const skillFileName = "SKILL.md"
+
+// checkSkillFrontmatter enforces the skill discovery contract at generation
+// time: when a skill declares frontmatter, its name must match the manifest
+// and it must carry a description. Missing frontmatter is not a render error
+// (validate warns about it); broken or mismatched frontmatter is.
+func checkSkillFrontmatter(skill domain.Skill) []skillmeta.Problem {
+	fm, found, problems := skillmeta.Parse(skill.Content)
+	if !found {
+		return nil
+	}
+	if len(problems) > 0 {
+		return problems
+	}
+	return skillmeta.Validate(skill.Name, fm)
+}
+
 func renderSkillDirOutput(output domain.TargetOutput, inputs renderInputs) ([]ports.EmittedFile, error) {
 	files := make([]ports.EmittedFile, 0, len(inputs.skills))
 	for _, skill := range inputs.skills {
 		if err := validateSkillName(skill.Name); err != nil {
 			return nil, fmt.Errorf("skill %q: %w", skill.Name, err)
+		}
+		if problems := checkSkillFrontmatter(skill); len(problems) > 0 {
+			return nil, fmt.Errorf("skill %q (%s): %s", skill.Name, skill.Path, problems[0].Message)
+		}
+		if skill.IsDirectory() {
+			files = append(files, ports.EmittedFile{
+				Path:    output.Path + skill.Name + "/" + skillFileName,
+				Content: skill.Content,
+			})
+			support := make([]string, 0, len(skill.Files))
+			for rel := range skill.Files {
+				support = append(support, rel)
+			}
+			sort.Strings(support)
+			for _, rel := range support {
+				files = append(files, ports.EmittedFile{
+					Path:    output.Path + skill.Name + "/" + rel,
+					Content: skill.Files[rel],
+				})
+			}
+			continue
 		}
 		files = append(files, ports.EmittedFile{
 			Path:    output.Path + skill.Name + ".md",

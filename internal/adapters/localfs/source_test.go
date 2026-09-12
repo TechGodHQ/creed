@@ -250,3 +250,110 @@ func TestReadManifestRejectsAncestorSymlinkSourcePath(t *testing.T) {
 		t.Fatal("ReadManifest traversed an ancestor symlink")
 	}
 }
+
+// createDirectorySkillProject sets up a project whose skill entry points at a
+// directory containing SKILL.md plus support files.
+func createDirectorySkillProject(t *testing.T) string {
+	t.Helper()
+	root := t.TempDir()
+	creedDir := filepath.Join(root, ".creed")
+	if err := os.MkdirAll(filepath.Join(creedDir, "skills", "techgodhq", "references"), 0755); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `version: 1
+source:
+  type: local
+  path: .creed
+
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+
+skills:
+  - name: techgodhq
+    path: skills/techgodhq
+
+config: []
+`
+	if err := os.WriteFile(filepath.Join(creedDir, "manifest.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	skillMD := "---\nname: techgodhq\ndescription: Org-wide agent procedures.\n---\n# TechGodHQ Skill\nUse the references.\n"
+	if err := os.WriteFile(filepath.Join(creedDir, "skills", "techgodhq", "SKILL.md"), []byte(skillMD), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(creedDir, "skills", "techgodhq", "references", "git.md"), []byte("# Git policy\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(creedDir, "skills", "techgodhq", "references", "review.md"), []byte("# Review policy\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestReadSkillDirectory(t *testing.T) {
+	root := createDirectorySkillProject(t)
+	source := NewSource(root)
+	skill, err := source.ReadSkill(context.Background(), "techgodhq")
+	if err != nil {
+		t.Fatalf("ReadSkill directory skill: %v", err)
+	}
+	if !skill.IsDirectory() {
+		t.Fatal("expected directory-shaped skill")
+	}
+	want := "---\nname: techgodhq\ndescription: Org-wide agent procedures.\n---\n# TechGodHQ Skill\nUse the references.\n"
+	if string(skill.Content) != want {
+		t.Fatalf("SKILL.md content mismatch: %q", skill.Content)
+	}
+	if len(skill.Files) != 2 {
+		t.Fatalf("expected 2 support files, got %d: %v", len(skill.Files), skill.Files)
+	}
+	if string(skill.Files["references/git.md"]) != "# Git policy\n" {
+		t.Fatalf("support file git.md mismatch: %q", skill.Files["references/git.md"])
+	}
+	if string(skill.Files["references/review.md"]) != "# Review policy\n" {
+		t.Fatalf("support file review.md mismatch: %q", skill.Files["references/review.md"])
+	}
+}
+
+func TestReadSkillDirectoryMissingSkillMD(t *testing.T) {
+	root := createDirectorySkillProject(t)
+	if err := os.Remove(filepath.Join(root, ".creed", "skills", "techgodhq", "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+	source := NewSource(root)
+	if _, err := source.ReadSkill(context.Background(), "techgodhq"); err == nil {
+		t.Fatal("expected error when directory skill lacks SKILL.md")
+	}
+}
+
+func TestReadSkillDirectoryRejectsSymlink(t *testing.T) {
+	root := createDirectorySkillProject(t)
+	outside := filepath.Join(root, "outside.md")
+	if err := os.WriteFile(outside, []byte("escaped content\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, filepath.Join(root, ".creed", "skills", "techgodhq", "references", "escape.md")); err != nil {
+		t.Fatal(err)
+	}
+	source := NewSource(root)
+	_, err := source.ReadSkill(context.Background(), "techgodhq")
+	if err == nil {
+		t.Fatal("expected symlink inside skill directory to be rejected")
+	}
+}
+
+func TestReadSkillDirectoryOnlySkillMD(t *testing.T) {
+	root := createDirectorySkillProject(t)
+	if err := os.Remove(filepath.Join(root, ".creed", "skills", "techgodhq", "references", "git.md")); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(filepath.Join(root, ".creed", "skills", "techgodhq", "references", "review.md")); err != nil {
+		t.Fatal(err)
+	}
+	source := NewSource(root)
+	if _, err := source.ReadSkill(context.Background(), "techgodhq"); err == nil {
+		t.Fatal("expected directory with only SKILL.md to be rejected in favor of a direct file entry")
+	}
+}

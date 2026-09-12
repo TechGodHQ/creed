@@ -794,3 +794,350 @@ func hasDoctorCheck(checks []DoctorCheck, kind, code string) bool {
 	}
 	return false
 }
+
+func writeSkillProject(t *testing.T, manifest string, files map[string]string) string {
+	t.Helper()
+	root := t.TempDir()
+	creedDir := filepath.Join(root, ".creed")
+	if err := os.MkdirAll(creedDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	for path, content := range files {
+		full := filepath.Join(root, filepath.FromSlash(path))
+		if err := os.MkdirAll(filepath.Dir(full), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(full, []byte(content), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(creedDir, "manifest.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	return root
+}
+
+func TestValidateAcceptsDirectorySkillWithFrontmatter(t *testing.T) {
+	root := writeSkillProject(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: techgodhq
+    path: skills/techgodhq
+config: []
+`, map[string]string{
+		".creed/skills/techgodhq/SKILL.md":          "---\nname: techgodhq\ndescription: Org procedures.\n---\n# Org\n",
+		".creed/skills/techgodhq/references/git.md": "# Git\n",
+		".creed/skills/techgodhq/templates/pr.md":   "# PR\n",
+	})
+	result, err := New(root).Validate(context.Background())
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if !result.Valid {
+		t.Fatalf("Validate() errors = %#v", result.Errors)
+	}
+}
+
+func TestValidateDirectorySkillDiagnostics(t *testing.T) {
+	base := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: %s
+    path: skills/%s
+config: []
+`
+	cases := []struct {
+		name       string
+		skillName  string
+		dirName    string
+		skillMD    string
+		wantCode   string
+		wantIn     string // "errors" or "warnings"
+		extraFiles map[string]string
+	}{
+		{
+			name:      "missing SKILL.md",
+			skillName: "techgodhq", dirName: "techgodhq",
+			skillMD: "", wantCode: "missing_source_file", wantIn: "errors",
+		},
+		{
+			name:      "frontmatter name mismatch",
+			skillName: "techgodhq", dirName: "techgodhq",
+			skillMD:  "---\nname: other\ndescription: x\n---\n# S\n",
+			wantCode: "skill_name_mismatch", wantIn: "errors",
+		},
+		{
+			name:      "missing description",
+			skillName: "techgodhq", dirName: "techgodhq",
+			skillMD:  "---\nname: techgodhq\n---\n# S\n",
+			wantCode: "missing_skill_description", wantIn: "errors",
+		},
+		{
+			name:      "no frontmatter warns",
+			skillName: "techgodhq", dirName: "techgodhq",
+			skillMD:  "# Plain skill\n",
+			wantCode: "missing_skill_frontmatter", wantIn: "warnings",
+		},
+		{
+			name:      "unterminated frontmatter",
+			skillName: "techgodhq", dirName: "techgodhq",
+			skillMD:  "---\nname: techgodhq\n# never closed\n",
+			wantCode: "unterminated_skill_frontmatter", wantIn: "errors",
+		},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			files := map[string]string{}
+			if tc.skillMD != "" {
+				files[".creed/skills/"+tc.dirName+"/SKILL.md"] = tc.skillMD
+			}
+			for p, c := range tc.extraFiles {
+				files[p] = c
+			}
+			root := writeSkillProject(t, fmt.Sprintf(base, tc.skillName, tc.dirName), files)
+			result, err := New(root).Validate(context.Background())
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			var diags []ValidationDiagnostic
+			if tc.wantIn == "errors" {
+				diags = result.Errors
+			} else {
+				diags = result.Warnings
+			}
+			if !hasDiagnostic(diags, tc.wantCode) {
+				t.Fatalf("Validate() %s = %#v, missing %q", tc.wantIn, diags, tc.wantCode)
+			}
+		})
+	}
+}
+
+func TestValidateDirectorySkillRejectsSymlink(t *testing.T) {
+	root := t.TempDir()
+	creedDir := filepath.Join(root, ".creed")
+	skillDir := filepath.Join(creedDir, "skills", "techgodhq")
+	if err := os.MkdirAll(skillDir, 0755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(skillDir, "SKILL.md"), []byte("---\nname: techgodhq\ndescription: x\n---\n# S\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink("/etc/hostname", filepath.Join(skillDir, "escape.md")); err != nil {
+		t.Fatal(err)
+	}
+	manifest := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: techgodhq
+    path: skills/techgodhq
+config: []
+`
+	if err := os.WriteFile(filepath.Join(creedDir, "manifest.yaml"), []byte(manifest), 0644); err != nil {
+		t.Fatal(err)
+	}
+	result, err := New(root).Validate(context.Background())
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if result.Valid {
+		t.Fatalf("Validate() = valid, want symlink rejection; errors=%#v", result.Errors)
+	}
+	if !hasDiagnostic(result.Errors, "symlink_source_file") {
+		t.Fatalf("Validate() errors = %#v, missing symlink_source_file", result.Errors)
+	}
+}
+
+func TestValidateWarnsWhenSkillsHaveNoOutputTarget(t *testing.T) {
+	root := writeSkillProject(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: agents
+    enabled: true
+    output_dir: .
+skills:
+  - name: plain
+    path: skills/plain.md
+config: []
+`, map[string]string{
+		".creed/skills/plain.md": "---\nname: plain\ndescription: A skill.\n---\n# Plain\n",
+	})
+	result, err := New(root).Validate(context.Background())
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if !hasDiagnostic(result.Warnings, "skills_have_no_output") {
+		t.Fatalf("Validate() warnings = %#v, missing skills_have_no_output", result.Warnings)
+	}
+	if !result.Valid {
+		t.Fatalf("Validate() errors = %#v, want valid (warning only)", result.Errors)
+	}
+}
+
+func TestSyncDirectorySkillEndToEndNoDataLoss(t *testing.T) {
+	root := writeSkillProject(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: techgodhq
+    path: skills/techgodhq
+config: []
+`, map[string]string{
+		".creed/skills/techgodhq/SKILL.md":                 "---\nname: techgodhq\ndescription: Org procedures.\n---\n# Org Skill\nBody.\n",
+		".creed/skills/techgodhq/references/git.md":        "# Git policy\nSigned commits required.\n",
+		".creed/skills/techgodhq/references/review.md":     "# Review policy\nTwo reviewers.\n",
+		".creed/skills/techgodhq/templates/pr-template.md": "# PR\nTemplate body.\n",
+		".creed/skills/techgodhq/scripts/check.sh":         "#!/bin/sh\nexit 0\n",
+	})
+	svc := New(root)
+	ctx := context.Background()
+
+	validateResult, err := svc.Validate(ctx)
+	if err != nil {
+		t.Fatalf("Validate() error = %v", err)
+	}
+	if !validateResult.Valid {
+		t.Fatalf("Validate() errors = %#v", validateResult.Errors)
+	}
+
+	syncResult, err := svc.Sync(ctx, usecase.SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("Sync() error = %v", err)
+	}
+	if syncResult.HasErrors() {
+		t.Fatalf("Sync() target errors: %#v", syncResult.Targets)
+	}
+	if syncResult.TotalFilesWritten() != 5 {
+		t.Fatalf("TotalFilesWritten() = %d, want 5; result=%#v", syncResult.TotalFilesWritten(), syncResult)
+	}
+
+	emitted := map[string]string{
+		".claude/skills/techgodhq/SKILL.md":                 "---\nname: techgodhq\ndescription: Org procedures.\n---\n# Org Skill\nBody.\n",
+		".claude/skills/techgodhq/references/git.md":        "# Git policy\nSigned commits required.\n",
+		".claude/skills/techgodhq/references/review.md":     "# Review policy\nTwo reviewers.\n",
+		".claude/skills/techgodhq/templates/pr-template.md": "# PR\nTemplate body.\n",
+		".claude/skills/techgodhq/scripts/check.sh":         "#!/bin/sh\nexit 0\n",
+	}
+	for path, want := range emitted {
+		got := mustRead(t, filepath.Join(root, filepath.FromSlash(path)))
+		if got != want {
+			t.Errorf("%s = %q, want %q", path, got, want)
+		}
+	}
+
+	// Zero data loss: every source file under the skill directory appears
+	// under the emitted skill directory, and vice versa.
+	sourceFiles := 0
+	err = filepath.Walk(filepath.Join(root, ".creed", "skills", "techgodhq"), func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			sourceFiles++
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	emittedFiles := 0
+	err = filepath.Walk(filepath.Join(root, ".claude", "skills", "techgodhq"), func(path string, info os.FileInfo, err error) error {
+		if err == nil && !info.IsDir() {
+			emittedFiles++
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if sourceFiles != emittedFiles || sourceFiles != 5 {
+		t.Fatalf("file count mismatch: source=%d emitted=%d, want 5/5", sourceFiles, emittedFiles)
+	}
+
+	// Second sync is a no-op.
+	second, err := svc.Sync(ctx, usecase.SyncOptions{Target: "claude"})
+	if err != nil {
+		t.Fatalf("second Sync() error = %v", err)
+	}
+	if second.TotalFilesWritten() != 0 {
+		t.Fatalf("second sync wrote %d files, want 0 (idempotent)", second.TotalFilesWritten())
+	}
+	if second.TotalFilesSkipped() != 5 {
+		t.Fatalf("second sync skipped %d files, want 5", second.TotalFilesSkipped())
+	}
+}
+
+func TestValidateFlatSkillFrontmatterDiagnostics(t *testing.T) {
+	base := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: demo
+    path: skills/%s
+config: []
+`
+	cases := []struct {
+		name     string
+		file     string
+		content  string
+		wantCode string
+		wantIn   string
+	}{
+		{"mismatch", "demo.md", "---\nname: other\ndescription: x\n---\n# S\n", "skill_name_mismatch", "errors"},
+		{"missing description", "demo.md", "---\nname: demo\n---\n# S\n", "missing_skill_description", "errors"},
+		{"no frontmatter", "demo.md", "# Plain\n", "missing_skill_frontmatter", "warnings"},
+		{"valid", "demo.md", "---\nname: demo\ndescription: A skill.\n---\n# S\n", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeSkillProject(t, fmt.Sprintf(base, tc.file), map[string]string{
+				".creed/skills/" + tc.file: tc.content,
+			})
+			result, err := New(root).Validate(context.Background())
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if tc.wantCode == "" {
+				if !result.Valid {
+					t.Fatalf("Validate() errors = %#v, want valid", result.Errors)
+				}
+				return
+			}
+			var diags []ValidationDiagnostic
+			if tc.wantIn == "errors" {
+				diags = result.Errors
+			} else {
+				diags = result.Warnings
+			}
+			if !hasDiagnostic(diags, tc.wantCode) {
+				t.Fatalf("Validate() %s = %#v, missing %q", tc.wantIn, diags, tc.wantCode)
+			}
+		})
+	}
+}

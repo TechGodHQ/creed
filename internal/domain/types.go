@@ -5,14 +5,27 @@ package domain
 
 import "time"
 
-// Skill represents an AI skill file stored in the creed source.
+// Skill represents an AI skill stored in the creed source.
+// A skill is either a single markdown file (Content set, Files nil) or a
+// directory-shaped skill (Files set): a directory containing SKILL.md plus
+// optional support files such as references/, templates/, scripts/, or assets/.
 type Skill struct {
 	// Name is the canonical skill identifier (e.g., "code-review").
 	Name string
 	// Path is the relative path to the skill file within the source.
 	Path string
-	// Content is the raw file content of the skill.
+	// Content is the raw file content of the skill. For directory-shaped
+	// skills this holds the SKILL.md content.
 	Content []byte
+	// Files holds the support files of a directory-shaped skill, keyed by
+	// path relative to the skill directory (e.g. "references/api.md").
+	// Nil for flat single-file skills.
+	Files map[string][]byte
+}
+
+// IsDirectory reports whether the skill is directory-shaped.
+func (s Skill) IsDirectory() bool {
+	return s.Files != nil
 }
 
 // SkillInfo is a lightweight summary of a skill, without content payload.

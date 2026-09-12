@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -172,6 +173,9 @@ func (s *Source) ReadManifestBytes(ctx context.Context) ([]byte, error) {
 }
 
 // ReadSkill reads a skill's full content by name.
+// A skill entry may point at a single markdown file or at a directory
+// containing SKILL.md; directory skills are read as a full support-file
+// tree (see readSkillDirectory).
 func (s *Source) ReadSkill(ctx context.Context, name string) (*domain.Skill, error) {
 	manifest, err := s.ReadManifest(ctx)
 	if err != nil {
@@ -184,6 +188,9 @@ func (s *Source) ReadSkill(ctx context.Context, name string) (*domain.Skill, err
 			skillPath, err := s.sourceFilePath(entry.Path)
 			if err != nil {
 				return nil, fmt.Errorf("invalid skill path %s: %w", entry.Path, err)
+			}
+			if info, statErr := os.Lstat(skillPath); statErr == nil && info.IsDir() {
+				return s.readSkillDirectory(entry, skillPath)
 			}
 			content, err := readContainedFile(s.rootDir, skillPath)
 			if err != nil {
@@ -198,6 +205,73 @@ func (s *Source) ReadSkill(ctx context.Context, name string) (*domain.Skill, err
 	}
 
 	return nil, fmt.Errorf("skill not found: %s", name)
+}
+
+// readSkillDirectory reads a directory-shaped skill: SKILL.md becomes the
+// skill content and every other regular file becomes a support file keyed by
+// slash-separated path relative to the skill directory. The walk rejects
+// symlinks and non-regular files so a skill directory cannot smuggle content
+// outside the source tree or depend on link targets.
+func (s *Source) readSkillDirectory(entry domain.SkillEntry, skillDir string) (*domain.Skill, error) {
+	skillRel := filepath.ToSlash(filepath.Clean(entry.Path))
+	files := make(map[string][]byte)
+	err := filepath.WalkDir(skillDir, func(path string, d fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if path == skillDir {
+			return nil
+		}
+		if d.Type()&fs.ModeSymlink != 0 {
+			return fmt.Errorf("skill directory %s contains symlink %s", skillRel, relSlash(skillDir, path))
+		}
+		rel := relSlash(skillDir, path)
+		if d.IsDir() {
+			// Reserved support directories emitted verbatim; anything else
+			// rides along as opaque content.
+			return nil
+		}
+		if !d.Type().IsRegular() {
+			return fmt.Errorf("skill directory %s contains non-regular file %s", skillRel, rel)
+		}
+		if rel == skillFileName {
+			return nil
+		}
+		content, err := readContainedFile(s.rootDir, path)
+		if err != nil {
+			return fmt.Errorf("failed to read skill file %s: %w", path, err)
+		}
+		files[rel] = content
+		return nil
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(files) == 0 {
+		return nil, fmt.Errorf("skill directory %s contains only SKILL.md; declare the file path directly instead", skillRel)
+	}
+	skillMDPath := filepath.Join(skillDir, skillFileName)
+	content, err := readContainedFile(s.rootDir, skillMDPath)
+	if err != nil {
+		return nil, fmt.Errorf("failed to read skill file %s: %w", skillMDPath, err)
+	}
+	return &domain.Skill{
+		Name:    entry.Name,
+		Path:    entry.Path,
+		Content: content,
+		Files:   files,
+	}, nil
+}
+
+// skillFileName is the required markdown entrypoint of a directory-shaped skill.
+const skillFileName = "SKILL.md"
+
+func relSlash(base, path string) string {
+	rel, err := filepath.Rel(base, path)
+	if err != nil {
+		return filepath.ToSlash(path)
+	}
+	return filepath.ToSlash(rel)
 }
 
 // ListSkills returns lightweight info for all skills declared in the manifest.
