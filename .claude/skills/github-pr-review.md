@@ -1,3 +1,8 @@
+---
+name: github-pr-review
+description: Review checklist for Creed pull requests.
+---
+
 # GitHub PR Review Skill
 
 Use this when reviewing a Creed pull request.

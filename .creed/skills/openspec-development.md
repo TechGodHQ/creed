@@ -1,3 +1,8 @@
+---
+name: openspec-development
+description: Workflow for adding significant Creed behavior via OpenSpec changes.
+---
+
 # OpenSpec Development Skill
 
 Use this when adding or changing significant Creed behavior.

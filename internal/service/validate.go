@@ -452,6 +452,9 @@ func (s *Implementation) validateEntryAt(result *ValidationResult, sourceRoot, k
 	if strings.TrimSpace(string(content)) == "" {
 		result.addWarning("empty_source_content", fmt.Sprintf("%s source file is empty", label), cleanPath)
 	}
+	if kind == "skill" {
+		validateSkillFrontmatter(result, label, name, content, cleanPath)
+	}
 }
 
 // validateSkillDirectory validates a directory-shaped skill entry: SKILL.md

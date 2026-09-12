@@ -1087,3 +1087,57 @@ config: []
 		t.Fatalf("second sync skipped %d files, want 5", second.TotalFilesSkipped())
 	}
 }
+
+func TestValidateFlatSkillFrontmatterDiagnostics(t *testing.T) {
+	base := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: demo
+    path: skills/%s
+config: []
+`
+	cases := []struct {
+		name     string
+		file     string
+		content  string
+		wantCode string
+		wantIn   string
+	}{
+		{"mismatch", "demo.md", "---\nname: other\ndescription: x\n---\n# S\n", "skill_name_mismatch", "errors"},
+		{"missing description", "demo.md", "---\nname: demo\n---\n# S\n", "missing_skill_description", "errors"},
+		{"no frontmatter", "demo.md", "# Plain\n", "missing_skill_frontmatter", "warnings"},
+		{"valid", "demo.md", "---\nname: demo\ndescription: A skill.\n---\n# S\n", "", ""},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			root := writeSkillProject(t, fmt.Sprintf(base, tc.file), map[string]string{
+				".creed/skills/" + tc.file: tc.content,
+			})
+			result, err := New(root).Validate(context.Background())
+			if err != nil {
+				t.Fatalf("Validate() error = %v", err)
+			}
+			if tc.wantCode == "" {
+				if !result.Valid {
+					t.Fatalf("Validate() errors = %#v, want valid", result.Errors)
+				}
+				return
+			}
+			var diags []ValidationDiagnostic
+			if tc.wantIn == "errors" {
+				diags = result.Errors
+			} else {
+				diags = result.Warnings
+			}
+			if !hasDiagnostic(diags, tc.wantCode) {
+				t.Fatalf("Validate() %s = %#v, missing %q", tc.wantIn, diags, tc.wantCode)
+			}
+		})
+	}
+}
