@@ -223,6 +223,33 @@ engine renders those descriptors instead of inferring behavior from filenames.
   `AGENTS.md`, `GEMINI.md`, `.windsurfrules`, or Aider's `CONVENTIONS.md`.
 - Skill directory outputs receive one file per skill, such as `.claude/skills/`
   `.cursor/rules/`, and `.gemini/`.
+- **Directory-shaped skills.** A skill entry may point at a directory that
+  contains `SKILL.md` instead of a single flat file. The whole directory —
+  `references/`, `templates/`, `scripts/`, `assets/`, any regular files — is
+  emitted under `<skill-dir>/<name>/`, so Hermes-style skills with support
+  files sync with zero data loss:
+
+  ```yaml
+  skills:
+    - name: techgodhq
+      path: skills/techgodhq   # directory containing SKILL.md
+  ```
+
+  emits `.claude/skills/techgodhq/SKILL.md` plus every support file, byte
+  for byte. Symlinks and non-regular files inside a skill directory are
+  rejected. A directory that contains only `SKILL.md` is an error — declare
+  the file path directly instead.
+- **Skill frontmatter validation.** When a skill file carries YAML
+  frontmatter, creed validates the discovery contract: `name` must match the
+  manifest entry name and `description` must be present. `validate` reports
+  violations as errors naming the file and the problem; `sync` refuses to
+  render a skill that breaks the contract. Skills without frontmatter are
+  legal but produce a `missing_skill_frontmatter` warning, because
+  downstream tools (Claude Code, Hermes) discover skills through these
+  fields.
+- `validate` also warns when declared skills have no enabled target with a
+  skill output (for example a skills-only source with just the `agents`
+  target enabled) — previously that combination was a silent no-op.
 - Target-specific config outputs are rendered by explicit per-target renderers.
   Aider receives `.aider.conf.yml` pointing Aider at `CONVENTIONS.md`, plus the
   separate `CONVENTIONS.md` context file.

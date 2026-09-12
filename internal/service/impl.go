@@ -40,7 +40,12 @@ Document build, test, lint, and release commands here.
 	},
 	{
 		Path: "skills/review.md",
-		Content: `# Review Guidelines
+		Content: `---
+name: review
+description: Guidelines for agents reviewing changes in this project.
+---
+
+# Review Guidelines
 
 Describe how agents should review changes in this project.
 `,

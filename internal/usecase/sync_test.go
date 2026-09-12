@@ -856,3 +856,123 @@ func TestSyncRejectsSkillNameTraversalBeforeEmit(t *testing.T) {
 		t.Fatalf("malicious skill created an outside file: %v", err)
 	}
 }
+
+func TestPrepareFiles_DirectorySkillEmitsFullTree(t *testing.T) {
+	target, _ := domain.LookupTarget("claude") // .claude/skills/
+	skills := []domain.Skill{
+		{
+			Name:    "techgodhq",
+			Path:    "skills/techgodhq",
+			Content: []byte("---\nname: techgodhq\ndescription: Org procedures.\n---\n# Org Skill\n"),
+			Files: map[string][]byte{
+				"references/git.md":    []byte("# Git\n"),
+				"references/review.md": []byte("# Review\n"),
+				"templates/pr.md":      []byte("# PR template\n"),
+			},
+		},
+		{Name: "flat", Path: "skills/flat.md", Content: []byte("# Flat skill\n")},
+	}
+	files, err := prepareFiles(target, skills, nil)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
+	want := map[string]string{
+		".claude/skills/techgodhq/SKILL.md":             "---\nname: techgodhq\ndescription: Org procedures.\n---\n# Org Skill\n",
+		".claude/skills/techgodhq/references/git.md":    "# Git\n",
+		".claude/skills/techgodhq/references/review.md": "# Review\n",
+		".claude/skills/techgodhq/templates/pr.md":      "# PR template\n",
+		".claude/skills/flat.md":                        "# Flat skill\n",
+	}
+	if len(files) != len(want) {
+		t.Fatalf("expected %d files, got %d: %v", len(want), len(files), files)
+	}
+	for _, f := range files {
+		expected, ok := want[f.Path]
+		if !ok {
+			t.Fatalf("unexpected emitted path %q", f.Path)
+		}
+		if string(f.Content) != expected {
+			t.Errorf("path %q content mismatch: got %q want %q", f.Path, f.Content, expected)
+		}
+	}
+}
+
+func TestPrepareFiles_DirectorySkillSortedDeterministically(t *testing.T) {
+	target, _ := domain.LookupTarget("claude")
+	skills := []domain.Skill{
+		{
+			Name:    "zeta",
+			Path:    "skills/zeta",
+			Content: []byte("# Zeta\n"),
+			Files: map[string][]byte{
+				"b.md":   []byte("b"),
+				"a.md":   []byte("a"),
+				"c/d.md": []byte("d"),
+			},
+		},
+	}
+	files, err := prepareFiles(target, skills, nil)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
+	var paths []string
+	for _, f := range files {
+		paths = append(paths, f.Path)
+	}
+	expected := []string{
+		".claude/skills/zeta/SKILL.md",
+		".claude/skills/zeta/a.md",
+		".claude/skills/zeta/b.md",
+		".claude/skills/zeta/c/d.md",
+	}
+	if len(paths) != len(expected) {
+		t.Fatalf("expected %d paths, got %v", len(expected), paths)
+	}
+	for i := range expected {
+		if paths[i] != expected[i] {
+			t.Fatalf("path order mismatch at %d: got %q want %q (all: %v)", i, paths[i], expected[i], paths)
+		}
+	}
+}
+
+func TestPrepareFiles_SkillFrontmatterMismatchFails(t *testing.T) {
+	target, _ := domain.LookupTarget("claude")
+	skills := []domain.Skill{
+		{
+			Name:    "right-name",
+			Path:    "skills/wrong.md",
+			Content: []byte("---\nname: wrong-name\ndescription: Mismatched.\n---\n# Skill\n"),
+		},
+	}
+	if _, err := prepareFiles(target, skills, nil); err == nil {
+		t.Fatal("expected frontmatter name mismatch to fail rendering")
+	}
+}
+
+func TestPrepareFiles_SkillMissingDescriptionFails(t *testing.T) {
+	target, _ := domain.LookupTarget("claude")
+	skills := []domain.Skill{
+		{
+			Name:    "nodesc",
+			Path:    "skills/nodesc.md",
+			Content: []byte("---\nname: nodesc\n---\n# Skill\n"),
+		},
+	}
+	if _, err := prepareFiles(target, skills, nil); err == nil {
+		t.Fatal("expected missing description to fail rendering")
+	}
+}
+
+func TestPrepareFiles_SkillWithoutFrontmatterRenders(t *testing.T) {
+	target, _ := domain.LookupTarget("claude")
+	skills := []domain.Skill{
+		{Name: "legacy", Path: "skills/legacy.md", Content: []byte("# Legacy skill without frontmatter\n")},
+	}
+	files, err := prepareFiles(target, skills, nil)
+	if err != nil {
+		t.Fatalf("prepare files: %v", err)
+	}
+	if len(files) != 1 || files[0].Path != ".claude/skills/legacy.md" {
+		t.Fatalf("unexpected files: %v", files)
+	}
+}
