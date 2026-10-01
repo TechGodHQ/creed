@@ -481,17 +481,21 @@ func DisableTargetMCPHandler(s service.Service) ToolHandler {
 
 type pullRequest struct {
 	RemoteURL string `json:"remote_url,omitempty"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+	Force     bool   `json:"force,omitempty"`
 }
 
 // PullToolSpec returns generated MCP metadata for service.Service.Pull.
 func PullToolSpec() ToolSpec {
-	return ToolSpec{MethodName: "Pull", Name: PullToolName, Description: PullToolDescription, ParamNames: []string{"remote_url"}}
+	return ToolSpec{MethodName: "Pull", Name: PullToolName, Description: PullToolDescription, ParamNames: []string{"remote_url", "dry_run", "force"}}
 }
 
 // PullMCPTool returns the generated MCP tool definition for service.Service.Pull.
 func PullMCPTool() mcplib.Tool {
 	options := []mcplib.ToolOption{mcplib.WithDescription(PullToolDescription)}
 	options = append(options, mcplib.WithString("remote_url"))
+	options = append(options, mcplib.WithBoolean("dry_run"))
+	options = append(options, mcplib.WithBoolean("force"))
 	return mcplib.NewTool(PullToolName, options...)
 }
 
@@ -502,10 +506,11 @@ func PullMCPHandler(s service.Service) ToolHandler {
 		if err := decodePayload(payload, &req); err != nil {
 			return nil, err
 		}
-		if err := s.Pull(ctx, req.RemoteURL); err != nil {
+		result, err := s.Pull(ctx, usecase.PullOptions{RemoteURL: req.RemoteURL, DryRun: req.DryRun, Force: req.Force})
+		if err != nil {
 			return nil, err
 		}
-		return okResponse{OK: true}, nil
+		return result, nil
 	}
 }
 

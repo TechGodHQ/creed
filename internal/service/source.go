@@ -17,6 +17,18 @@ type sourceHandle struct {
 	cleanups []func()
 }
 
+// manifestOverrideSource supplies an in-memory manifest while retaining the
+// local reader for project-owned skills and config files. Pull uses it to
+// preview a candidate layered manifest before that manifest is persisted.
+type manifestOverrideSource struct {
+	ports.SourceReader
+	manifest *domain.Manifest
+}
+
+func (s manifestOverrideSource) ReadManifest(context.Context) (*domain.Manifest, error) {
+	return s.manifest, nil
+}
+
 func (h *sourceHandle) close() {
 	for i := len(h.cleanups) - 1; i >= 0; i-- {
 		h.cleanups[i]()
@@ -45,7 +57,7 @@ func (s *Implementation) openSourceForManifest(manifest *domain.Manifest) (*sour
 
 	switch sourceType {
 	case "local":
-		local := localfs.NewSource(s.root)
+		local := manifestOverrideSource{SourceReader: localfs.NewSource(s.root), manifest: manifest}
 		if len(manifest.Source.Layers) == 0 {
 			return &sourceHandle{reader: local}, nil
 		}
@@ -54,7 +66,7 @@ func (s *Implementation) openSourceForManifest(manifest *domain.Manifest) (*sour
 		if len(manifest.Source.Layers) == 0 {
 			return nil, fmt.Errorf("layered source requires at least one layer")
 		}
-		local := localfs.NewSource(s.root)
+		local := manifestOverrideSource{SourceReader: localfs.NewSource(s.root), manifest: manifest}
 		return s.openLayeredSource(manifest.Source.Layers, local)
 	case "git":
 		if len(manifest.Source.Layers) > 0 {

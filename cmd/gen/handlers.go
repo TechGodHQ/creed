@@ -209,7 +209,25 @@ func runDisableTarget(cmd *cobra.Command, s service.Service, args []string) erro
 
 func runPull(cmd *cobra.Command, s service.Service, args []string) error {
 	remoteURL := positionalInput(args, 0)
-	return s.Pull(cmd.Context(), remoteURL)
+	dryRun, err := boolFlag(cmd, "dry_run")
+	if err != nil {
+		return err
+	}
+	force, err := boolFlag(cmd, "force")
+	if err != nil {
+		return err
+	}
+	result, err := s.Pull(cmd.Context(), usecase.PullOptions{RemoteURL: remoteURL, DryRun: dryRun, Force: force})
+	if err != nil {
+		return err
+	}
+	for _, targetResult := range result.Targets {
+		fmt.Fprintf(cmd.OutOrStdout(), "%s: %d written, %d would_write, %d skipped, %d failed\n", targetResult.Target, targetResult.FilesWritten, targetResult.FilesWouldWrite, targetResult.FilesSkipped, targetResult.FilesFailed)
+		for _, file := range targetResult.Files {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %s %s\n", file.Status, file.Path)
+		}
+	}
+	return nil
 }
 
 func runPush(cmd *cobra.Command, s service.Service, args []string) error {

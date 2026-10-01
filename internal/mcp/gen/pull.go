@@ -9,4 +9,4 @@ const PullToolName = "pull"
 const PullToolDescription = "Pull syncs from a git remote source into the service root."
 
 // PullToolParams are parameter names extracted from service.Service.Pull.
-var PullToolParams = []string{"ctx", "remoteURL"}
+var PullToolParams = []string{"ctx", "opts"}

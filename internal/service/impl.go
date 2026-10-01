@@ -343,83 +343,103 @@ func (s *Implementation) DisableTarget(ctx context.Context, name string) error {
 
 // Pull records a shared git layer and syncs the composed source into this
 // project's targets. It never replaces the local .creed source files.
-func (s *Implementation) Pull(ctx context.Context, remoteURL string) error {
+func (s *Implementation) Pull(ctx context.Context, opts usecase.PullOptions) (*usecase.SyncResult, error) {
 	if err := ctx.Err(); err != nil {
-		return err
+		return nil, err
 	}
-	if remoteURL != "" {
-		normalizedRemote, normalizeErr := normalizePullRemoteURL(remoteURL)
-		if normalizeErr != nil {
-			return normalizeErr
-		}
-		if err := s.ensureLayeredManifest(ctx, normalizedRemote); err != nil {
-			return err
-		}
-	} else {
-		manifest, manifestErr := s.readManifest()
-		if manifestErr != nil {
-			return manifestErr
-		}
-		if manifest.Source.Type != "git" && manifest.Source.Type != "layered" && len(manifest.Source.Layers) == 0 {
-			return fmt.Errorf("remote URL is required for pull")
-		}
-		if manifest.Source.Type == "git" && strings.TrimSpace(manifest.Source.Remote) == "" {
-			return fmt.Errorf("remote URL is required for pull")
-		}
-	}
-	source, err := s.openSource(ctx)
+	previous, previousErr := s.readManifest()
+	candidate, changed, err := s.pullManifest(ctx, previous, previousErr, opts.RemoteURL)
 	if err != nil {
-		return err
+		return nil, err
+	}
+
+	var localPreview *usecase.SyncResult
+	if previousErr == nil {
+		localSource, err := s.openSourceForManifest(previous)
+		if err != nil {
+			return nil, err
+		}
+		defer localSource.close()
+		localPreview, err = usecase.NewSyncEngine(localSource.reader, localfs.NewEmitter(s.root)).Sync(ctx, usecase.SyncOptions{DryRun: true})
+		if err != nil {
+			return nil, err
+		}
+	}
+
+	source, err := s.openSourceForManifest(candidate)
+	if err != nil {
+		return nil, err
 	}
 	defer source.close()
 	engine := usecase.NewSyncEngine(source.reader, localfs.NewEmitter(s.root))
-	result, err := engine.Sync(ctx, usecase.SyncOptions{})
+	preview, err := engine.Sync(ctx, usecase.SyncOptions{DryRun: true})
 	if err != nil {
-		return err
+		return nil, err
+	}
+	if opts.DryRun {
+		return preview, nil
+	}
+	if !opts.Force && localPreview != nil {
+		if conflicts := pullConflicts(s.root, localPreview, preview); len(conflicts) > 0 {
+			return nil, fmt.Errorf("pull would overwrite locally modified emitted files; rerun with --force: %s", strings.Join(conflicts, ", "))
+		}
+	}
+	if changed {
+		if err := s.writeManifest(candidate); err != nil {
+			return nil, err
+		}
+	}
+	result, err := engine.Sync(ctx, usecase.SyncOptions{Force: opts.Force})
+	if err != nil {
+		return nil, err
 	}
 	if result.HasErrors() {
-		return fmt.Errorf("pull sync completed with target errors")
+		return result, fmt.Errorf("pull sync completed with target errors")
 	}
-	return nil
+	return result, nil
 }
 
-func (s *Implementation) ensureLayeredManifest(ctx context.Context, remoteURL string) error {
-	manifest, err := s.readManifest()
-	if err != nil {
-		if _, statErr := os.Stat(s.manifestPath()); statErr != nil && os.IsNotExist(statErr) {
-			remote, cleanup, openErr := s.openGitSource(gitremote.SourceOptions{RemoteURL: remoteURL})
-			if openErr != nil {
-				return openErr
-			}
-			remoteManifest, readErr := remote.ReadManifest(ctx)
-			cleanup()
-			if readErr != nil {
-				return readErr
-			}
-			manifest = &domain.Manifest{
-				Version: 1,
-				Source: domain.SourceConfig{
-					Type: "layered",
-					Path: ".creed",
-					Layers: []domain.SourceLayer{{
-						Name:   "org",
-						Type:   "git",
-						Path:   ".creed",
-						Remote: remoteURL,
-					}},
-				},
-				Targets: remoteManifest.Targets,
-			}
-			return s.writeManifest(manifest)
+func (s *Implementation) pullManifest(ctx context.Context, manifest *domain.Manifest, manifestErr error, remoteURL string) (*domain.Manifest, bool, error) {
+	if remoteURL == "" {
+		if manifestErr != nil {
+			return nil, false, manifestErr
 		}
-		return err
+		if manifest.Source.Type != "git" && manifest.Source.Type != "layered" && len(manifest.Source.Layers) == 0 {
+			return nil, false, fmt.Errorf("remote URL is required for pull")
+		}
+		if manifest.Source.Type == "git" && strings.TrimSpace(manifest.Source.Remote) == "" {
+			return nil, false, fmt.Errorf("remote URL is required for pull")
+		}
+		return manifest, false, nil
 	}
-	manifest.Source.Type = "layered"
-	manifest.Source.Path = sourcePathOrDefault(manifest.Source.Path)
+
+	normalizedRemote, err := normalizePullRemoteURL(remoteURL)
+	if err != nil {
+		return nil, false, err
+	}
+	if manifestErr != nil {
+		if _, statErr := os.Stat(s.manifestPath()); statErr != nil && os.IsNotExist(statErr) {
+			remote, cleanup, openErr := s.openGitSource(gitremote.SourceOptions{RemoteURL: normalizedRemote})
+			if openErr != nil {
+				return nil, false, openErr
+			}
+			defer cleanup()
+			remoteManifest, readErr := remote.ReadManifest(ctx)
+			if readErr != nil {
+				return nil, false, readErr
+			}
+			return &domain.Manifest{Version: 1, Source: domain.SourceConfig{Type: "layered", Path: ".creed", Layers: []domain.SourceLayer{{Name: "org", Type: "git", Path: ".creed", Remote: normalizedRemote}}}, Targets: remoteManifest.Targets}, true, nil
+		}
+		return nil, false, manifestErr
+	}
+
+	candidate := cloneManifest(manifest)
+	candidate.Source.Type = "layered"
+	candidate.Source.Path = sourcePathOrDefault(candidate.Source.Path)
 	updated := false
-	for i := range manifest.Source.Layers {
-		if manifest.Source.Layers[i].Name == "org" || manifest.Source.Layers[i].Remote == remoteURL {
-			layer := manifest.Source.Layers[i]
+	for i := range candidate.Source.Layers {
+		if candidate.Source.Layers[i].Name == "org" || candidate.Source.Layers[i].Remote == normalizedRemote {
+			layer := candidate.Source.Layers[i]
 			if layer.Name == "" {
 				layer.Name = "org"
 			}
@@ -427,21 +447,50 @@ func (s *Implementation) ensureLayeredManifest(ctx context.Context, remoteURL st
 			if layer.Path == "" {
 				layer.Path = ".creed"
 			}
-			layer.Remote = remoteURL
-			manifest.Source.Layers[i] = layer
+			layer.Remote = normalizedRemote
+			candidate.Source.Layers[i] = layer
 			updated = true
 			break
 		}
 	}
 	if !updated {
-		manifest.Source.Layers = append(manifest.Source.Layers, domain.SourceLayer{
-			Name:   "org",
-			Type:   "git",
-			Path:   ".creed",
-			Remote: remoteURL,
-		})
+		candidate.Source.Layers = append(candidate.Source.Layers, domain.SourceLayer{Name: "org", Type: "git", Path: ".creed", Remote: normalizedRemote})
 	}
-	return s.writeManifest(manifest)
+	return candidate, true, nil
+}
+
+func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
+	copy := *manifest
+	copy.Source.Layers = append([]domain.SourceLayer(nil), manifest.Source.Layers...)
+	copy.Targets = append([]domain.TargetConfig(nil), manifest.Targets...)
+	copy.Skills = append([]domain.SkillEntry(nil), manifest.Skills...)
+	copy.Configs = append([]domain.ConfigEntry(nil), manifest.Configs...)
+	return &copy
+}
+
+func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
+	localChanges := map[string]bool{}
+	for _, target := range local.Targets {
+		for _, file := range target.Files {
+			if file.Status == usecase.StatusWouldWrite {
+				localChanges[target.Target+"\x00"+file.Path] = true
+			}
+		}
+	}
+	conflicts := []string{}
+	for _, target := range incoming.Targets {
+		for _, file := range target.Files {
+			key := target.Target + "\x00" + file.Path
+			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+				continue
+			}
+			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {
+				conflicts = append(conflicts, file.Path)
+			}
+		}
+	}
+	sort.Strings(conflicts)
+	return conflicts
 }
 
 // Push publishes local .creed source changes to a git remote using the system
