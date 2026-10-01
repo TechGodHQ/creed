@@ -29,6 +29,7 @@ func GeneratedOperations(s service.Service) []GeneratedOperation {
 		{Descriptor: mustOperation("Sync"), Handler: SyncHTTPHandler(s)},
 		{Descriptor: mustOperation("Validate"), Handler: ValidateHTTPHandler(s)},
 		{Descriptor: mustOperation("Diff"), Handler: DiffHTTPHandler(s)},
+		{Descriptor: mustOperation("Check"), Handler: CheckHTTPHandler(s)},
 		{Descriptor: mustOperation("AddSkill"), Handler: AddSkillHTTPHandler(s)},
 		{Descriptor: mustOperation("RemoveSkill"), Handler: RemoveSkillHTTPHandler(s)},
 		{Descriptor: mustOperation("ListSkills"), Handler: ListSkillsHTTPHandler(s)},
@@ -112,6 +113,25 @@ func DiffHTTPHandler(s service.Service) OperationHandler {
 			return nil, err
 		}
 		result, err := s.Diff(ctx, usecase.DiffOptions{Target: req.Target})
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+type checkRequest struct {
+	Target string `json:"target,omitempty"`
+}
+
+// CheckHTTPHandler returns the generated HTTP handler for service.Service.Check.
+func CheckHTTPHandler(s service.Service) OperationHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req checkRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		result, err := s.Check(ctx, usecase.DiffOptions{Target: req.Target})
 		if err != nil {
 			return nil, err
 		}

@@ -144,6 +144,11 @@ func (s *Implementation) Diff(ctx context.Context, opts usecase.DiffOptions) (*u
 	return engine.Diff(ctx, opts)
 }
 
+// Check is the non-mutating CI-oriented alias for Diff.
+func (s *Implementation) Check(ctx context.Context, opts usecase.DiffOptions) (*usecase.DiffResult, error) {
+	return s.Diff(ctx, opts)
+}
+
 // AddSkill registers a skill path in the manifest.
 func (s *Implementation) AddSkill(ctx context.Context, name, sourcePath string) error {
 	if err := ctx.Err(); err != nil {

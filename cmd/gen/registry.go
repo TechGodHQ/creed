@@ -15,6 +15,7 @@ func Commands(s service.Service) []*cobra.Command {
 		NewSyncCommand(s),
 		NewValidateCommand(s),
 		NewDiffCommand(s),
+		NewCheckCommand(s),
 		NewAddSkillCommand(s),
 		NewRemoveSkillCommand(s),
 		NewListSkillsCommand(s),

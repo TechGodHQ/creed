@@ -25,6 +25,9 @@ type Service interface {
 	Validate(ctx context.Context) (ValidationResult, error)
 	// Diff previews line-level changes between rendered target output and disk.
 	Diff(ctx context.Context, opts usecase.DiffOptions) (*usecase.DiffResult, error)
+	// Check is the CI-oriented drift gate. It is non-mutating and returns the
+	// same stable diff as Diff; generated CLI surfaces exit 1 when drift exists.
+	Check(ctx context.Context, opts usecase.DiffOptions) (*usecase.DiffResult, error)
 	// AddSkill registers a skill file in the manifest.
 	AddSkill(ctx context.Context, name, sourcePath string) error
 	// RemoveSkill removes a skill registration from the manifest.

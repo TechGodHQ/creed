@@ -24,6 +24,44 @@ func TestSyncCommandDryRunSummaryIncludesWouldWriteCount(t *testing.T) {
 	}
 }
 
+func TestCheckCommandExitsZeroWhenInSyncAndOneOnDrift(t *testing.T) {
+	projectDir := t.TempDir()
+	writeTestCreedProject(t, projectDir)
+	executeRootCommandInDir(t, projectDir, "sync", "--target", "claude", "--dry-run=false")
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	defer func() {
+		rootCmd.SetOut(os.Stdout)
+		rootCmd.SetErr(os.Stderr)
+		rootCmd.SetArgs(nil)
+	}()
+	rootCmd.SetArgs([]string{"check", "--target", "claude"})
+	if err := rootCmd.Execute(); err != nil {
+		t.Fatalf("check on synced output failed: %v\noutput:\n%s", err, out.String())
+	}
+	if err := os.WriteFile(filepath.Join(projectDir, "CLAUDE.md"), []byte("drift\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	out.Reset()
+	rootCmd.SetArgs([]string{"check", "--target", "claude"})
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatal("check succeeded despite output drift")
+	}
+	if !strings.Contains(out.String(), "--- a/CLAUDE.md") {
+		t.Fatalf("check did not print the drift diff: %s", out.String())
+	}
+}
+
 func TestInitCommandCreatesProjectScaffold(t *testing.T) {
 	projectDir := t.TempDir()
 

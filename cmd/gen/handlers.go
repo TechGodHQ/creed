@@ -85,6 +85,21 @@ func runDiff(cmd *cobra.Command, s service.Service, args []string) error {
 	if diff := result.UnifiedDiff(); diff != "" {
 		fmt.Fprint(cmd.OutOrStdout(), diff)
 	}
+	return nil
+}
+
+func runCheck(cmd *cobra.Command, s service.Service, args []string) error {
+	target, err := stringFlag(cmd, "target")
+	if err != nil {
+		return err
+	}
+	result, err := s.Check(cmd.Context(), usecase.DiffOptions{Target: target})
+	if err != nil {
+		return err
+	}
+	if diff := result.UnifiedDiff(); diff != "" {
+		fmt.Fprint(cmd.OutOrStdout(), diff)
+	}
 	if result.HasDifferences() {
 		return diffExitStatus{}
 	}

@@ -75,6 +75,16 @@ var Operations = []OperationDescriptor{
 		Outputs:       []OutputDescriptor{{Name: "result1", Type: "*usecase.DiffResult"}, {Name: "result2", Type: "error"}},
 	},
 	{
+		MethodName:    "Check",
+		OperationName: "check",
+		Description:   "Check is the CI-oriented drift gate. It is non-mutating and returns the\nsame stable diff as Diff; generated CLI surfaces exit 1 when drift exists.",
+		CLIName:       "check",
+		MCPName:       "check",
+		HTTPRoute:     "/v1/operations/check",
+		Inputs:        []InputDescriptor{{Name: "target", ExternalName: "target", Type: "string", Kind: "primitive", Required: false, CLIKind: "flag", Help: ""}},
+		Outputs:       []OutputDescriptor{{Name: "result1", Type: "*usecase.DiffResult"}, {Name: "result2", Type: "error"}},
+	},
+	{
 		MethodName:    "AddSkill",
 		OperationName: "add_skill",
 		Description:   "AddSkill registers a skill file in the manifest.",
