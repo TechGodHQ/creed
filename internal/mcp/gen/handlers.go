@@ -31,6 +31,7 @@ func GeneratedTools(s service.Service) []GeneratedTool {
 		{Spec: SyncToolSpec(), Tool: SyncMCPTool(), Handler: SyncMCPHandler(s)},
 		{Spec: ValidateToolSpec(), Tool: ValidateMCPTool(), Handler: ValidateMCPHandler(s)},
 		{Spec: DiffToolSpec(), Tool: DiffMCPTool(), Handler: DiffMCPHandler(s)},
+		{Spec: CheckToolSpec(), Tool: CheckMCPTool(), Handler: CheckMCPHandler(s)},
 		{Spec: AddSkillToolSpec(), Tool: AddSkillMCPTool(), Handler: AddSkillMCPHandler(s)},
 		{Spec: RemoveSkillToolSpec(), Tool: RemoveSkillMCPTool(), Handler: RemoveSkillMCPHandler(s)},
 		{Spec: ListSkillsToolSpec(), Tool: ListSkillsMCPTool(), Handler: ListSkillsMCPHandler(s)},
@@ -163,6 +164,37 @@ func DiffMCPHandler(s service.Service) ToolHandler {
 			return nil, err
 		}
 		result, err := s.Diff(ctx, usecase.DiffOptions{Target: req.Target})
+		if err != nil {
+			return nil, err
+		}
+		return result, nil
+	}
+}
+
+type checkRequest struct {
+	Target string `json:"target,omitempty"`
+}
+
+// CheckToolSpec returns generated MCP metadata for service.Service.Check.
+func CheckToolSpec() ToolSpec {
+	return ToolSpec{MethodName: "Check", Name: CheckToolName, Description: CheckToolDescription, ParamNames: []string{"target"}}
+}
+
+// CheckMCPTool returns the generated MCP tool definition for service.Service.Check.
+func CheckMCPTool() mcplib.Tool {
+	options := []mcplib.ToolOption{mcplib.WithDescription(CheckToolDescription)}
+	options = append(options, mcplib.WithString("target"))
+	return mcplib.NewTool(CheckToolName, options...)
+}
+
+// CheckMCPHandler returns the generated MCP handler for service.Service.Check.
+func CheckMCPHandler(s service.Service) ToolHandler {
+	return func(ctx context.Context, payload json.RawMessage) (any, error) {
+		var req checkRequest
+		if err := decodePayload(payload, &req); err != nil {
+			return nil, err
+		}
+		result, err := s.Check(ctx, usecase.DiffOptions{Target: req.Target})
 		if err != nil {
 			return nil, err
 		}

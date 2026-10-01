@@ -916,11 +916,14 @@ func cliHandlerFunction(method serviceMethod, inputs []methodParam) (string, err
 		fmt.Fprintf(&b, "	for _, target := range result.Targets {\n		status := \"disabled\"\n		if target.Enabled {\n			status = \"enabled\"\n		}\n		fmt.Fprintf(cmd.OutOrStdout(), \"Target %%s: %%s\\n\", target.Name, status)\n	}\n")
 		fmt.Fprintf(&b, "	for _, check := range result.Checks {\n		if check.Kind == \"error\" {\n			fmt.Fprintf(cmd.OutOrStdout(), \"ERROR %%s: %%s\\n\", check.Code, check.Message)\n		}\n	}\n")
 		fmt.Fprintf(&b, "	if result.HasErrors() {\n		return fmt.Errorf(\"doctor found issues\")\n	}\n	fmt.Fprintln(cmd.OutOrStdout(), \"All checks passed\")\n	return nil\n}\n\n")
-	case "Diff":
-		fmt.Fprintf(&b, "	result, err := s.Diff(%s)\n", callArgs)
+	case "Diff", "Check":
+		fmt.Fprintf(&b, "	result, err := s.%s(%s)\n", method.Name, callArgs)
 		fmt.Fprintf(&b, "	if err != nil {\n		return err\n	}\n")
 		fmt.Fprintf(&b, "	if diff := result.UnifiedDiff(); diff != \"\" {\n		fmt.Fprint(cmd.OutOrStdout(), diff)\n	}\n")
-		fmt.Fprintf(&b, "	if result.HasDifferences() {\n		return diffExitStatus{}\n	}\n	return nil\n}\n\n")
+		if method.Name == "Check" {
+			fmt.Fprintf(&b, "	if result.HasDifferences() {\n		return diffExitStatus{}\n	}\n")
+		}
+		fmt.Fprintf(&b, "	return nil\n}\n\n")
 	case "Watch":
 		fmt.Fprintf(&b, "\treturn runWatchCommand(cmd, s, target, quiet, force, debounce)\n}\n\n")
 	case "AddSkill", "AddConfig":
@@ -1512,7 +1515,7 @@ func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor
 			return runner(cmd, s, args)
 		},
 	}
-	if operation.MethodName == "Diff" {
+	if operation.MethodName == "Diff" || operation.MethodName == "Check" {
 		cmd.SilenceErrors = true
 		cmd.SilenceUsage = true
 	}
@@ -1522,6 +1525,9 @@ func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor
 		}
 		flagName := cliFlagName(input.ExternalName)
 		help := input.Help
+		if input.Name == "target" {
+			help = fmt.Sprintf("%s (available: agents, aider, claude, codex, copilot, cursor, gemini, opencode, windsurf)", help)
+		}
 		switch input.Type {
 		case "bool":
 			cmd.Flags().Bool(flagName, false, help)

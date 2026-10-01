@@ -16,6 +16,7 @@ var ToolSpecs = []ToolSpec{
 	{MethodName: "Sync", Name: SyncToolName, Description: SyncToolDescription, ParamNames: SyncToolParams},
 	{MethodName: "Validate", Name: ValidateToolName, Description: ValidateToolDescription, ParamNames: ValidateToolParams},
 	{MethodName: "Diff", Name: DiffToolName, Description: DiffToolDescription, ParamNames: DiffToolParams},
+	{MethodName: "Check", Name: CheckToolName, Description: CheckToolDescription, ParamNames: CheckToolParams},
 	{MethodName: "AddSkill", Name: AddSkillToolName, Description: AddSkillToolDescription, ParamNames: AddSkillToolParams},
 	{MethodName: "RemoveSkill", Name: RemoveSkillToolName, Description: RemoveSkillToolDescription, ParamNames: RemoveSkillToolParams},
 	{MethodName: "ListSkills", Name: ListSkillsToolName, Description: ListSkillsToolDescription, ParamNames: ListSkillsToolParams},

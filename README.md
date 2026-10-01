@@ -81,7 +81,11 @@ creed validate
 # Diagnose the project setup: root, manifest, targets, git availability
 creed doctor
 
-# Preview line-level changes between rendered output and disk
+# Check rendered output for CI drift (exit 1 when output differs)
+creed check
+creed check --target claude
+
+# Preview the same line-level changes without treating it as a CI gate
 creed diff
 creed diff --target claude
 
@@ -125,7 +129,8 @@ reading Go source:
 2. In a project, run `creed list-skills`, `creed validate`, and `creed diff`.
    `list-skills` outside a project succeeds with no registrations.
 3. Use `creed sync --dry-run` before a write, then `creed sync`; use `creed
-   diff` as the nonzero CI drift gate after generation.
+   check` as the nonzero CI drift gate after generation. `creed diff` prints
+   the same stable unified diff for interactive inspection.
 4. Run `creed doctor` for setup *and generated-output* health. It exits
    nonzero when rendered enabled-target output is missing, modified, or stale;
    inspect the exact change with `creed diff`, then repair it with `creed sync`.
@@ -133,7 +138,7 @@ reading Go source:
 For a noninteractive CI gate:
 
 ```bash
-creed validate && creed diff
+creed validate && creed check
 ```
 
 ### Source and command behavior

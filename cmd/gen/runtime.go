@@ -43,7 +43,7 @@ func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor
 			return runner(cmd, s, args)
 		},
 	}
-	if operation.MethodName == "Diff" {
+	if operation.MethodName == "Diff" || operation.MethodName == "Check" {
 		cmd.SilenceErrors = true
 		cmd.SilenceUsage = true
 	}
@@ -53,6 +53,9 @@ func newGeneratedCommand(s service.Service, operation opsgen.OperationDescriptor
 		}
 		flagName := cliFlagName(input.ExternalName)
 		help := input.Help
+		if input.Name == "target" {
+			help = fmt.Sprintf("%s (available: agents, aider, claude, codex, copilot, cursor, gemini, opencode, windsurf)", help)
+		}
 		switch input.Type {
 		case "bool":
 			cmd.Flags().Bool(flagName, false, help)
