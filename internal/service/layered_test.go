@@ -174,7 +174,7 @@ config:
 		".creed/config/repo.md": "# Repo rules\n",
 	})
 
-	if err := New(root, WithCacheDir(filepath.Join(t.TempDir(), "cache"))).Pull(context.Background(), remote); err != nil {
+	if _, err := New(root, WithCacheDir(filepath.Join(t.TempDir(), "cache"))).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote}); err != nil {
 		t.Fatalf("layered pull: %v", err)
 	}
 	content := mustRead(t, filepath.Join(root, "AGENTS.md"))
@@ -264,7 +264,7 @@ func TestPullRejectsCredentialBearingRemoteVariants(t *testing.T) {
 		"ftp://user:secret@example.com/org.git",
 	} {
 		t.Run(remote, func(t *testing.T) {
-			if err := New(t.TempDir()).Pull(context.Background(), remote); err == nil || !strings.Contains(err.Error(), "embedded credentials") {
+			if _, err := New(t.TempDir()).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote}); err == nil || !strings.Contains(err.Error(), "embedded credentials") {
 				t.Fatalf("Pull(%q) error = %v, want credential rejection", remote, err)
 			}
 		})
@@ -297,7 +297,7 @@ config:
 
 func TestPullRejectsCredentialBearingRemoteBeforeWritingManifest(t *testing.T) {
 	root := t.TempDir()
-	err := New(root).Pull(context.Background(), "https://user:secret@example.com/org.git")
+	_, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: "https://user:secret@example.com/org.git"})
 	if err == nil || !strings.Contains(err.Error(), "embedded credentials") {
 		t.Fatalf("Pull() error = %v, want embedded-credential rejection", err)
 	}
@@ -321,12 +321,88 @@ source:
 	if err := os.WriteFile(manifestPath, []byte(manifest), 0644); err != nil {
 		t.Fatal(err)
 	}
-	if err := New(root).Pull(context.Background(), remote); err != nil {
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote}); err != nil {
 		t.Fatalf("Pull(): %v", err)
 	}
 	got := mustRead(t, manifestPath)
 	if !strings.Contains(got, "path: context") || !strings.Contains(got, "ref: main") {
 		t.Fatalf("Pull() discarded layer path/ref: %q", got)
+	}
+}
+
+func TestPullDryRunPreviewsWithoutWritingManifestOrOutputs(t *testing.T) {
+	remote := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Org rules\n"})
+	root := t.TempDir()
+
+	result, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote, DryRun: true})
+	if err != nil {
+		t.Fatalf("dry-run pull: %v", err)
+	}
+	if result.TotalFilesWouldWrite() == 0 {
+		t.Fatalf("dry-run pull preview = %#v, want would-write files", result.Targets)
+	}
+	if _, err := os.Stat(filepath.Join(root, ".creed", "manifest.yaml")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run pull wrote manifest: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(root, "AGENTS.md")); !os.IsNotExist(err) {
+		t.Fatalf("dry-run pull wrote output: %v", err)
+	}
+}
+
+func TestPullRefusesModifiedOutputUnlessForced(t *testing.T) {
+	remote := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Incoming rules\n"})
+	root := newLayeredConsumer(t, remote, `targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`, map[string]string{
+		".creed/config/repo.md": "# Local rules\n",
+		"AGENTS.md":             "# User edits\n",
+	})
+	manifestPath := filepath.Join(root, ".creed", "manifest.yaml")
+	beforeManifest := mustRead(t, manifestPath)
+
+	_, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote})
+	if err == nil || !strings.Contains(err.Error(), "AGENTS.md") {
+		t.Fatalf("pull error = %v, want listed AGENTS.md conflict", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); got != "# User edits\n" {
+		t.Fatalf("refused pull overwrote output: %q", got)
+	}
+	if got := mustRead(t, manifestPath); got != beforeManifest {
+		t.Fatalf("refused pull wrote manifest: %q", got)
+	}
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote, Force: true}); err != nil {
+		t.Fatalf("forced pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Incoming rules") || !strings.Contains(got, "# Local rules") {
+		t.Fatalf("forced pull output = %q, want incoming and local content", got)
 	}
 }
 

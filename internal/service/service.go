@@ -47,7 +47,7 @@ type Service interface {
 	// DisableTarget disables a target in the manifest, creating it if needed.
 	DisableTarget(ctx context.Context, name string) error
 	// Pull syncs from a git remote source into the service root.
-	Pull(ctx context.Context, remoteURL string) error
+	Pull(ctx context.Context, opts usecase.PullOptions) (*usecase.SyncResult, error)
 	// Push publishes local source changes to the configured remote.
 	Push(ctx context.Context, remoteURL string) error
 	// Watch registers a Watcher on the project's canonical .creed/

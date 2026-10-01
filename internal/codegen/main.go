@@ -975,7 +975,20 @@ func formatTargetOutputs(outputs []domain.TargetOutput) string {
 		fmt.Fprintf(&b, "\tif err := s.DisableTarget(%s); err != nil {\n\t\treturn err\n\t}\n", callArgs)
 		fmt.Fprintf(&b, "\tfmt.Fprintf(cmd.OutOrStdout(), \"Disabled target %%s\\n\", name)\n\treturn nil\n}\n\n")
 	case "Pull":
-		fmt.Fprintf(&b, "\treturn s.Pull(%s)\n}\n\n", callArgs)
+		fmt.Fprintf(&b, `	result, err := s.Pull(%s)
+	if err != nil {
+		return err
+	}
+	for _, targetResult := range result.Targets {
+		fmt.Fprintf(cmd.OutOrStdout(), "%%s: %%d written, %%d would_write, %%d skipped, %%d failed\n", targetResult.Target, targetResult.FilesWritten, targetResult.FilesWouldWrite, targetResult.FilesSkipped, targetResult.FilesFailed)
+		for _, file := range targetResult.Files {
+			fmt.Fprintf(cmd.OutOrStdout(), "  %%s %%s\n", file.Status, file.Path)
+		}
+	}
+	return nil
+}
+
+`, callArgs)
 	case "Push":
 		fmt.Fprintf(&b, "\treturn s.Push(%s)\n}\n\n", callArgs)
 	default:
@@ -1382,7 +1395,13 @@ func operationInputs(method serviceMethod) []methodParam {
 		}
 	case "RemoveSkill", "RemoveConfig", "EnableTarget", "DisableTarget":
 		return []methodParam{{Name: "name", ExternalName: "name", Type: "string", Kind: "primitive", Required: true, CLIKind: "arg", Help: "Target, skill, or config name."}}
-	case "Pull", "Push":
+	case "Pull":
+		return []methodParam{
+			{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional git remote URL override."},
+			{Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Preview files without writing the manifest or outputs."},
+			{Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", CLIKind: "flag", Help: "Overwrite locally modified emitted files."},
+		}
+	case "Push":
 		return []methodParam{{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", CLIKind: "arg", Help: "Optional git remote URL override."}}
 	default:
 		return defaultCLIInputs(nonContextParams(method.Params))

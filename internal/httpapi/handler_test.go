@@ -209,6 +209,8 @@ func (f *fakeService) EnableTarget(ctx context.Context, name string) error { ret
 
 func (f *fakeService) DisableTarget(ctx context.Context, name string) error { return nil }
 
-func (f *fakeService) Pull(ctx context.Context, remoteURL string) error { return nil }
+func (f *fakeService) Pull(ctx context.Context, opts usecase.PullOptions) (*usecase.SyncResult, error) {
+	return &usecase.SyncResult{}, nil
+}
 
 func (f *fakeService) Push(ctx context.Context, remoteURL string) error { return nil }

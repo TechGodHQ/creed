@@ -311,6 +311,8 @@ func DisableTargetHTTPHandler(s service.Service) OperationHandler {
 
 type pullRequest struct {
 	RemoteURL string `json:"remote_url,omitempty"`
+	DryRun    bool   `json:"dry_run,omitempty"`
+	Force     bool   `json:"force,omitempty"`
 }
 
 // PullHTTPHandler returns the generated HTTP handler for service.Service.Pull.
@@ -320,10 +322,11 @@ func PullHTTPHandler(s service.Service) OperationHandler {
 		if err := decodePayload(payload, &req); err != nil {
 			return nil, err
 		}
-		if err := s.Pull(ctx, req.RemoteURL); err != nil {
+		result, err := s.Pull(ctx, usecase.PullOptions{RemoteURL: req.RemoteURL, DryRun: req.DryRun, Force: req.Force})
+		if err != nil {
 			return nil, err
 		}
-		return nil, nil
+		return result, nil
 	}
 }
 

@@ -181,8 +181,8 @@ var Operations = []OperationDescriptor{
 		CLIName:       "pull",
 		MCPName:       "pull",
 		HTTPRoute:     "/v1/operations/pull",
-		Inputs:        []InputDescriptor{{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", Required: false, CLIKind: "arg", Help: "Optional git remote URL override."}},
-		Outputs:       []OutputDescriptor{{Name: "result1", Type: "error"}},
+		Inputs:        []InputDescriptor{{Name: "remoteURL", ExternalName: "remote_url", Type: "string", Kind: "primitive", Required: false, CLIKind: "arg", Help: "Optional git remote URL override."}, {Name: "dryRun", ExternalName: "dry_run", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Preview files without writing the manifest or outputs."}, {Name: "force", ExternalName: "force", Type: "bool", Kind: "primitive", Required: false, CLIKind: "flag", Help: "Overwrite locally modified emitted files."}},
+		Outputs:       []OutputDescriptor{{Name: "result1", Type: "*usecase.SyncResult"}, {Name: "result2", Type: "error"}},
 	},
 	{
 		MethodName:    "Push",

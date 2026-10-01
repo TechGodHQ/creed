@@ -22,6 +22,21 @@ type SyncOptions struct {
 	Force bool `json:"force,omitempty"`
 }
 
+// PullOptions controls the behavior of a pull operation.
+type PullOptions struct {
+	// RemoteURL optionally sets or updates the shared git layer. When empty,
+	// pull uses the remote already configured in the manifest.
+	RemoteURL string `json:"remote_url,omitempty"`
+
+	// DryRun previews rendered outputs and never writes the manifest or target
+	// files.
+	DryRun bool `json:"dry_run,omitempty"`
+
+	// Force permits pull to overwrite output drift that is different from both
+	// the local and incoming renders.
+	Force bool `json:"force,omitempty"`
+}
+
 // DiffOptions controls the behavior of a diff operation.
 type DiffOptions struct {
 	// Target filters the diff to one manifest target. When empty, all enabled

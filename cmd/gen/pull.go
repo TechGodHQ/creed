@@ -18,7 +18,7 @@ type PullCommandSpec struct {
 // PullSpec is metadata extracted from service.Service.Pull.
 var PullSpec = PullCommandSpec{
 	Operation:  mustOperation("Pull"),
-	ParamNames: []string{"ctx", "remoteURL"},
+	ParamNames: []string{"ctx", "opts"},
 }
 
 // NewPullCommand returns the generated Cobra command wrapper for service.Service.Pull.
