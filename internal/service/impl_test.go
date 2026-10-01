@@ -585,6 +585,32 @@ func mustRead(t *testing.T, path string) string {
 	return string(data)
 }
 
+func TestGlobalDiscoveryDoesNotRequireManifest(t *testing.T) {
+	svc := New(t.TempDir())
+	ctx := context.Background()
+
+	targets, err := svc.ListTargets(ctx)
+	if err != nil {
+		t.Fatalf("ListTargets() error = %v", err)
+	}
+	if len(targets) != len(domain.AllTargetNames()) {
+		t.Fatalf("ListTargets() returned %d targets, want %d", len(targets), len(domain.AllTargetNames()))
+	}
+	for _, target := range targets {
+		if target.Enabled || target.OutputDir != "" {
+			t.Fatalf("unconfigured target = %#v, want disabled with no output directory", target)
+		}
+	}
+
+	skills, err := svc.ListSkills(ctx)
+	if err != nil {
+		t.Fatalf("ListSkills() error = %v", err)
+	}
+	if len(skills) != 0 {
+		t.Fatalf("ListSkills() = %#v, want no registered skills", skills)
+	}
+}
+
 func TestDoctorHealthyProject(t *testing.T) {
 	root := t.TempDir()
 	svc := New(root)
@@ -592,6 +618,9 @@ func TestDoctorHealthyProject(t *testing.T) {
 
 	if err := svc.Init(ctx, "demo"); err != nil {
 		t.Fatalf("Init() error = %v", err)
+	}
+	if _, err := svc.Sync(ctx, usecase.SyncOptions{}); err != nil {
+		t.Fatalf("Sync() error = %v", err)
 	}
 
 	report, err := svc.Doctor(ctx)
@@ -630,6 +659,32 @@ func TestDoctorHealthyProject(t *testing.T) {
 
 	if report.GitAvailable && report.GitPath == "" {
 		t.Errorf("GitAvailable = true but GitPath is empty")
+	}
+}
+
+func TestDoctorReportsOutputDrift(t *testing.T) {
+	root := t.TempDir()
+	svc := New(root)
+	ctx := context.Background()
+	if err := svc.Init(ctx, "demo"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Sync(ctx, usecase.SyncOptions{Target: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("clobbered\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+
+	report, err := svc.Doctor(ctx)
+	if err != nil {
+		t.Fatalf("Doctor() error = %v", err)
+	}
+	if !report.Drifted || !report.HasErrors() {
+		t.Fatalf("Doctor() drift = %#v, want an error-level drift report", report)
+	}
+	if !hasDoctorCheck(report.Checks, "error", "output_drift") {
+		t.Fatalf("Doctor() checks = %#v, want output_drift", report.Checks)
 	}
 }
 

@@ -112,6 +112,61 @@ The generated manifest enables `claude`, `codex`, and `cursor` with
 Newer targets (`copilot`, `opencode`) are scaffolded disabled as well and can
 be enabled with `creed enable-target`.
 
+## Agent guide
+
+Creed's unit of work is a project root containing `.creed/manifest.yaml`. The
+manifest declares a source and enabled targets; `sync` resolves that source and
+emits deterministic target outputs. An agent can discover the contract without
+reading Go source:
+
+1. Run `creed list-targets` anywhere to inspect every supported target and its
+   emitted paths (`path|kind|format`). Without a manifest every target is shown
+   as disabled; this is global capability discovery, not project inspection.
+2. In a project, run `creed list-skills`, `creed validate`, and `creed diff`.
+   `list-skills` outside a project succeeds with no registrations.
+3. Use `creed sync --dry-run` before a write, then `creed sync`; use `creed
+   diff` as the nonzero CI drift gate after generation.
+4. Run `creed doctor` for setup *and generated-output* health. It exits
+   nonzero when rendered enabled-target output is missing, modified, or stale;
+   inspect the exact change with `creed diff`, then repair it with `creed sync`.
+
+For a noninteractive CI gate:
+
+```bash
+creed validate && creed diff
+```
+
+### Source and command behavior
+
+| Source type | `sync`, `diff`, `validate`, `doctor` | `pull` | `push` |
+|---|---|---|---|
+| `local` | Reads `.creed/` in the project. | Requires a remote argument and converts the project to layered source. | Publishes the configured local source. |
+| `git` | Reads the configured remote through the git source/cache. | Refreshes/syncs the configured remote. | Publishes the configured remote source. |
+| `layered` | Resolves layers in declared order, then the local `.creed/` layer last. | Adds/uses the shared remote and syncs; never replaces local files. | Rejected: shared context changes go through its own review path. |
+
+Config entries are aggregated in the manifest's declared order, joined verbatim
+with `---` separators. Later layers with the same config or skill name override
+earlier layers; use distinct names when both entries must be emitted. `sync`,
+`diff`, `validate`, and `doctor` all use this same resolved source.
+
+SSH authentication uses `SSH_AUTH_SOCK` or `CREED_GIT_SSH_KEY` (and optionally
+`CREED_GIT_SSH_PASSPHRASE`). The Go service API also accepts an HTTPS token via
+`WithGitToken`; the current CLI and MCP stdio server do not expose token
+configuration, so agents using those public surfaces must use SSH for private
+remotes. Tokens never belong in a remote URL, command argument, manifest, or
+report.
+
+### Target outputs
+
+`creed list-targets` is the authoritative machine-readable output inventory.
+The common target mapping is: Claude → `CLAUDE.md` + `.claude/skills/`; Codex
+and generic Agents → `AGENTS.md`; Cursor → `.cursor/rules/`; Copilot →
+`.github/copilot-instructions.md`; Gemini → `GEMINI.md` + `.gemini/`; OpenCode
+→ `AGENTS.md` + `.opencode/agents/`; Windsurf → `.windsurfrules`; and Aider →
+`.aider.conf.yml` + `CONVENTIONS.md`. A target can emit a context document,
+skill directory, or target-specific config; inspect its descriptors rather than
+assuming every target writes the same shape.
+
 ## Manifest format
 
 `creed` reads `.creed/manifest.yaml`:

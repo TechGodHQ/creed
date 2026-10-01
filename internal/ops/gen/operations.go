@@ -197,7 +197,7 @@ var Operations = []OperationDescriptor{
 	{
 		MethodName:    "Doctor",
 		OperationName: "doctor",
-		Description:   "Doctor produces a diagnostic report covering the project root,\nmanifest and source presence, validation summary, configured\ntargets, and git availability. It is non-mutating and never\nexposes sensitive values. Generated CLI, MCP, and HTTP callers\nreceive the same structured report.",
+		Description:   "Doctor produces a diagnostic report covering the project root,\nmanifest and source presence, validation summary, configured targets,\ngit availability, and generated-output drift. It is non-mutating and\nnever exposes sensitive values. Generated CLI, MCP, and HTTP callers\nreceive the same structured report.",
 		CLIName:       "doctor",
 		MCPName:       "doctor",
 		HTTPRoute:     "/v1/operations/doctor",

@@ -189,7 +189,18 @@ func (s *Implementation) RemoveSkill(ctx context.Context, name string) error {
 }
 
 // ListSkills lists all skills in the resolved source, including shared layers.
+// Outside a Creed project there are no registered skills, so global discovery
+// succeeds with an empty result instead of requiring a manifest.
 func (s *Implementation) ListSkills(ctx context.Context) ([]domain.SkillInfo, error) {
+	if err := ctx.Err(); err != nil {
+		return nil, err
+	}
+	if _, err := os.Stat(s.manifestPath()); err != nil {
+		if os.IsNotExist(err) {
+			return []domain.SkillInfo{}, nil
+		}
+		return nil, err
+	}
 	source, err := s.openSource(ctx)
 	if err != nil {
 		return nil, err
@@ -253,13 +264,21 @@ func (s *Implementation) ListConfigs(ctx context.Context) ([]domain.ConfigInfo, 
 }
 
 // ListTargets lists all known targets and annotates them with manifest state.
+// The target registry is global, so it remains useful from outside a Creed
+// project; absent manifests simply mean every target is unconfigured.
 func (s *Implementation) ListTargets(ctx context.Context) ([]domain.TargetInfo, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	manifest, err := s.readManifest()
-	if err != nil {
+	manifest := &domain.Manifest{}
+	if _, err := os.Stat(s.manifestPath()); err != nil {
+		if !os.IsNotExist(err) {
+			return nil, err
+		}
+	} else if configuredManifest, err := s.readManifest(); err != nil {
 		return nil, err
+	} else {
+		manifest = configuredManifest
 	}
 	if manifest.Source.Type == "git" || manifest.Source.Type == "layered" || len(manifest.Source.Layers) > 0 {
 		source, sourceErr := s.openSource(ctx)
