@@ -75,6 +75,39 @@ func TestGeneratedListTargetsCommandDelegatesToService(t *testing.T) {
 	}
 }
 
+func TestDoctorCommandReportsOutputDrift(t *testing.T) {
+	projectDir := t.TempDir()
+	writeTestCreedProject(t, projectDir)
+	executeRootCommandInDir(t, projectDir, "sync", "--target", "claude")
+	if err := os.WriteFile(filepath.Join(projectDir, "CLAUDE.md"), []byte("clobbered\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(projectDir); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(oldWd)
+	var out bytes.Buffer
+	rootCmd.SetOut(&out)
+	rootCmd.SetErr(&out)
+	rootCmd.SetArgs([]string{"doctor"})
+	defer func() {
+		rootCmd.SetOut(os.Stdout)
+		rootCmd.SetErr(os.Stderr)
+		rootCmd.SetArgs(nil)
+	}()
+	if err := rootCmd.Execute(); err == nil {
+		t.Fatalf("doctor succeeded after output drift; output:\n%s", out.String())
+	}
+	if !strings.Contains(out.String(), "ERROR output_drift") {
+		t.Fatalf("doctor did not report output drift; output:\n%s", out.String())
+	}
+}
+
 // TestWatchCommandSyncsOnSourceChange drives the generated `creed watch`
 // command end-to-end: it starts the watcher, mutates a canonical source
 // file, and confirms that a sync ran (the emitted CLAUDE.md picks up the

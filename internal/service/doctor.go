@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+
+	"github.com/techgodhq/creed/internal/usecase"
 )
 
 // DoctorCheck is a single diagnostic finding in a DoctorReport. CheckKind
@@ -42,6 +44,7 @@ type DoctorReport struct {
 	GitPath      string                `json:"git_path,omitempty"`
 	Validation   ValidationResult      `json:"validation"`
 	Targets      []DoctorTargetSummary `json:"targets"`
+	Drifted      bool                  `json:"drifted"`
 	Checks       []DoctorCheck         `json:"checks"`
 }
 
@@ -161,6 +164,36 @@ func (s *Implementation) Doctor(ctx context.Context) (DoctorReport, error) {
 			Message: diag.Message,
 			Detail:  diag.Path,
 		})
+	}
+
+	// --- Generated-output drift ---
+	// A healthy manifest alone says nothing about whether its declared outputs
+	// are current. Reuse the canonical diff engine so doctor reports exactly
+	// the same target drift that CI can gate with `creed diff`.
+	if validation.Valid {
+		diff, err := s.Diff(ctx, usecase.DiffOptions{})
+		if err != nil {
+			report.Checks = append(report.Checks, DoctorCheck{
+				Kind:    "error",
+				Code:    "output_drift_check_failed",
+				Message: "generated output drift could not be checked",
+				Detail:  err.Error(),
+			})
+		} else if diff.HasDifferences() {
+			report.Drifted = true
+			report.Checks = append(report.Checks, DoctorCheck{
+				Kind:    "error",
+				Code:    "output_drift",
+				Message: "generated target output differs from the current Creed source",
+				Detail:  "Run 'creed diff' to inspect changes, then 'creed sync' to update generated output.",
+			})
+		} else {
+			report.Checks = append(report.Checks, DoctorCheck{
+				Kind:    "info",
+				Code:    "output_drift",
+				Message: "generated target output is current",
+			})
+		}
 	}
 
 	// --- Configured targets ---

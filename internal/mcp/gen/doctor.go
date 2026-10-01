@@ -6,7 +6,7 @@ package gen
 const DoctorToolName = "doctor"
 
 // DoctorToolDescription is the generated MCP tool description for service.Service.Doctor.
-const DoctorToolDescription = "Doctor produces a diagnostic report covering the project root,\nmanifest and source presence, validation summary, configured\ntargets, and git availability. It is non-mutating and never\nexposes sensitive values. Generated CLI, MCP, and HTTP callers\nreceive the same structured report."
+const DoctorToolDescription = "Doctor produces a diagnostic report covering the project root,\nmanifest and source presence, validation summary, configured targets,\ngit availability, and generated-output drift. It is non-mutating and\nnever exposes sensitive values. Generated CLI, MCP, and HTTP callers\nreceive the same structured report."
 
 // DoctorToolParams are parameter names extracted from service.Service.Doctor.
 var DoctorToolParams = []string{"ctx"}
