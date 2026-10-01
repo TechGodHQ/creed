@@ -379,7 +379,10 @@ func (s *Implementation) Pull(ctx context.Context, opts usecase.PullOptions) (*u
 	if opts.DryRun {
 		return preview, nil
 	}
-	if !opts.Force && localPreview != nil {
+	if !opts.Force {
+		if localPreview == nil {
+			localPreview = &usecase.SyncResult{}
+		}
 		if conflicts := pullConflicts(s.root, localPreview, preview); len(conflicts) > 0 {
 			return nil, fmt.Errorf("pull would overwrite locally modified emitted files; rerun with --force: %s", strings.Join(conflicts, ", "))
 		}
@@ -469,19 +472,18 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 }
 
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
-	localChanges := map[string]bool{}
+	localFiles := map[string]string{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
-			if file.Status == usecase.StatusWouldWrite {
-				localChanges[target.Target+"\x00"+file.Path] = true
-			}
+			localFiles[target.Target+"\x00"+file.Path] = file.Status
 		}
 	}
 	conflicts := []string{}
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
 			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+			localStatus, locallyRendered := localFiles[key]
+			if file.Status != usecase.StatusWouldWrite || (locallyRendered && localStatus != usecase.StatusWouldWrite) {
 				continue
 			}
 			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {
