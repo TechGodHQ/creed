@@ -33,7 +33,7 @@ go install github.com/techgodhq/creed@latest
 For a pinned release:
 
 ```bash
-go install github.com/techgodhq/creed@v0.4.1
+go install github.com/techgodhq/creed@v0.5.0
 ```
 
 From a checkout:
