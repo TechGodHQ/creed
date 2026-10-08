@@ -52,7 +52,7 @@ func NewServer(service service.Service) *Server {
 		service: service,
 		mcpServer: serverlib.NewMCPServer(
 			"creed",
-			"0.4.1",
+			"0.5.0",
 			serverlib.WithToolCapabilities(true),
 			serverlib.WithStrictInputSchemaDefault(),
 			serverlib.WithInputSchemaValidation(),

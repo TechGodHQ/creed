@@ -6,6 +6,36 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] — pending publication
+
+### Added
+
+- **Directory-shaped skills.** A skill can be a directory containing `SKILL.md`
+  and support files; Creed preserves the full tree, validates available
+  frontmatter, and reports when no enabled target can emit skills.
+- **Drift checks and discovery.** `creed check` is a CI gate with a stable diff;
+  `creed diff` remains a non-gating preview. `list-targets` and `list-skills`
+  work outside a project, and `doctor` detects generated-output drift.
+- **Generated-output attribution.** Sync manages target-owned
+  `linguist-generated` attributes while preserving user-authored rules.
+
+### Changed
+
+- **Safer pulls.** `creed pull` supports `--dry-run` and `--force` across the
+  generated CLI, MCP, and HTTP surfaces. It previews changes and protects
+  existing emitted files unless force is explicitly requested.
+- The CLI and MCP implementation now report version `0.5.0`.
+
+### Known limitations
+
+- The `agents` and `codex` targets emit `AGENTS.md` but do not yet emit skill
+  files; directory skills require a target with skill-directory output.
+
+### Development and maintenance
+
+- Dogfood Creed's layered organization-context source and keep its generated
+  agent guidance in sync through CI.
+
 ## [0.4.1] — 2026-08-27
 
 Corrective release for the layered-context feature shipped in v0.4.0. The
@@ -83,6 +113,7 @@ so the version number is permanently associated with it. **The 0.3.0 release
 above supersedes everything in it.** Do not install v0.2.0; its release
 notes are preserved on GitHub only for historical reference.
 
+[0.5.0]: https://github.com/techgodhq/creed/releases/tag/v0.5.0
 [0.4.1]: https://github.com/techgodhq/creed/releases/tag/v0.4.1
 [0.3.0]: https://github.com/techgodhq/creed/releases/tag/v0.3.0
 [0.1.0]: https://github.com/techgodhq/creed/releases/tag/v0.1.0
