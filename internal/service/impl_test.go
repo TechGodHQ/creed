@@ -14,6 +14,20 @@ import (
 	"github.com/techgodhq/creed/internal/usecase"
 )
 
+func TestPullConflictsProtectsOutputAbsentFromLocalRender(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("user edit\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	incoming := &usecase.SyncResult{Targets: []usecase.TargetResult{{
+		Target: "codex",
+		Files:  []usecase.FileResult{{Path: "AGENTS.md", Status: usecase.StatusWouldWrite}},
+	}}}
+	if got := pullConflicts(root, &usecase.SyncResult{}, incoming); len(got) != 1 || got[0] != "AGENTS.md" {
+		t.Fatalf("pullConflicts() = %v, want [AGENTS.md]", got)
+	}
+}
+
 func TestInitCreatesStarterScaffoldAndPracticalDefaultTargets(t *testing.T) {
 	root := t.TempDir()
 	svc := New(root)

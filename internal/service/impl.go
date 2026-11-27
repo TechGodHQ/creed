@@ -379,9 +379,12 @@ func (s *Implementation) Pull(ctx context.Context, opts usecase.PullOptions) (*u
 	if opts.DryRun {
 		return preview, nil
 	}
-	if !opts.Force && localPreview != nil {
+	if !opts.Force {
+		if localPreview == nil {
+			localPreview = &usecase.SyncResult{}
+		}
 		if conflicts := pullConflicts(s.root, localPreview, preview); len(conflicts) > 0 {
-			return nil, fmt.Errorf("pull would overwrite locally modified emitted files; rerun with --force: %s", strings.Join(conflicts, ", "))
+			return nil, fmt.Errorf("pull would overwrite files that are locally modified or were never emitted by the local source; rerun with --force: %s", strings.Join(conflicts, ", "))
 		}
 	}
 	if changed {
@@ -468,33 +471,25 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 	return &copy
 }
 
-// pullConflicts lists files an incoming pull would overwrite where local
-// content deserves protection: files the local render also produces but
-// would rewrite (drifted since the last sync), and pre-existing files the
-// local render never produces at all, which pull does not own. Files the
-// local render produces unchanged are deliberately absent — incoming
-// rewrites of those are the normal shared-layer update — and would-write
-// targets with nothing on disk are creations, not overwrites.
+// pullConflicts lists output paths that a pull would overwrite even though
+// their on-disk content is not a clean product of the local source. A path
+// conflicts when the incoming render would write it, the file already exists
+// on disk, and either the local render would also rewrite it (a locally
+// emitted file carrying local modifications) or the local render never
+// emitted the path at all, so nothing vouches for the on-disk content.
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
-	localRendered := map[string]bool{}
-	localChanges := map[string]bool{}
+	localFiles := map[string]string{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
-			key := target.Target + "\x00" + file.Path
-			localRendered[key] = true
-			if file.Status == usecase.StatusWouldWrite {
-				localChanges[key] = true
-			}
+			localFiles[target.Target+"\x00"+file.Path] = file.Status
 		}
 	}
 	conflicts := []string{}
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
 			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite {
-				continue
-			}
-			if localRendered[key] && !localChanges[key] {
+			localStatus, locallyRendered := localFiles[key]
+			if file.Status != usecase.StatusWouldWrite || (locallyRendered && localStatus != usecase.StatusWouldWrite) {
 				continue
 			}
 			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {

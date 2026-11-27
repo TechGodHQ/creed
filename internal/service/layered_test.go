@@ -406,36 +406,62 @@ config:
 	}
 }
 
-func TestPullConflictsProtectsPreexistingUnrenderedFiles(t *testing.T) {
+func TestPullRefusesOverwritingPreexistingFileLocalRenderDidNotEmit(t *testing.T) {
+	remote := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: deploy
+    path: skills/deploy.md
+`, map[string]string{".creed/skills/deploy.md": "# Org deploy skill\n"})
 	root := t.TempDir()
-	writeLayeredFile(t, root, "notes.md", "# User notes\n")
-	writeLayeredFile(t, root, "drifted.md", "# User edits\n")
+	writeLayeredFile(t, root, ".creed/manifest.yaml", `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`)
+	writeLayeredFile(t, root, ".creed/config/repo.md", "# Local rules\n")
+	writeLayeredFile(t, root, ".claude/skills/deploy.md", "# User's own deploy notes\n")
+	manifestPath := filepath.Join(root, ".creed", "manifest.yaml")
+	beforeManifest := mustRead(t, manifestPath)
 
-	local := &usecase.SyncResult{Targets: []usecase.TargetResult{{
-		Target: "codex",
-		Files: []usecase.FileResult{
-			{Path: "AGENTS.md", Status: usecase.StatusSkipped},
-			{Path: "drifted.md", Status: usecase.StatusWouldWrite},
-		},
-	}}}
-	incoming := &usecase.SyncResult{Targets: []usecase.TargetResult{{
-		Target: "codex",
-		Files: []usecase.FileResult{
-			{Path: "AGENTS.md", Status: usecase.StatusWouldWrite},
-			{Path: "drifted.md", Status: usecase.StatusWouldWrite},
-			{Path: "notes.md", Status: usecase.StatusWouldWrite},
-			{Path: "fresh.md", Status: usecase.StatusWouldWrite},
-			{Path: "untouched.md", Status: usecase.StatusSkipped},
-		},
-	}}}
+	_, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote})
+	if err == nil || !strings.Contains(err.Error(), ".claude/skills/deploy.md") {
+		t.Fatalf("pull error = %v, want listed .claude/skills/deploy.md conflict", err)
+	}
+	if strings.Contains(err.Error(), "CLAUDE.md") {
+		t.Fatalf("pull error = %v, want only the skill file conflict", err)
+	}
+	if got := mustRead(t, filepath.Join(root, ".claude", "skills", "deploy.md")); got != "# User's own deploy notes\n" {
+		t.Fatalf("refused pull overwrote pre-existing skill file: %q", got)
+	}
+	if got := mustRead(t, manifestPath); got != beforeManifest {
+		t.Fatalf("refused pull wrote manifest: %q", got)
+	}
 
-	conflicts := pullConflicts(root, local, incoming)
-	if len(conflicts) != 2 || conflicts[0] != "drifted.md" || conflicts[1] != "notes.md" {
-		t.Fatalf("pullConflicts() = %#v, want [drifted.md notes.md]", conflicts)
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote, Force: true}); err != nil {
+		t.Fatalf("forced pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, ".claude", "skills", "deploy.md")); got != "# Org deploy skill\n" {
+		t.Fatalf("forced pull skill file = %q, want org content", got)
 	}
 }
 
-func TestPullRefusesOverwriteOfUnrenderedPreexistingFiles(t *testing.T) {
+// This covers replacing an existing org layer with a remote that introduces a
+// target path already occupied by a user file but not emitted by the old layer.
+func TestPullProtectsUserFileWhenReplacingOrgLayerIntroducesOutput(t *testing.T) {
 	remoteA := newLayeredRemote(t, `version: 1
 source:
   type: local
@@ -499,8 +525,80 @@ config:
 	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Org rules v2") || !strings.Contains(got, "# Repo rules") {
 		t.Fatalf("forced pull AGENTS.md = %q, want incoming layer update composed with local layer", got)
 	}
-	if got := mustRead(t, filepath.Join(root, ".cursor/rules", "notes.md")); !strings.Contains(got, "# Org notes skill") {
+	if got := mustRead(t, filepath.Join(root, ".cursor/rules/notes.md")); !strings.Contains(got, "# Org notes skill") {
 		t.Fatalf("forced pull .cursor/rules/notes.md = %q, want org skill content", got)
+	}
+}
+
+func TestPullUpdatesCleanLocallyEmittedFileWithoutConflict(t *testing.T) {
+	remote := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Org rules\n"})
+	root := t.TempDir()
+	writeLayeredFile(t, root, ".creed/manifest.yaml", `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`)
+	writeLayeredFile(t, root, ".creed/config/repo.md", "# Local rules\n")
+	writeLayeredFile(t, root, "CLAUDE.md", "# Local rules\n")
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote}); err != nil {
+		t.Fatalf("pull should update a clean, locally emitted file without conflict: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "CLAUDE.md")); !strings.Contains(got, "# Org rules") || !strings.Contains(got, "# Local rules") {
+		t.Fatalf("pull output = %q, want composed org and local content", got)
+	}
+	if got := mustRead(t, filepath.Join(root, ".creed", "manifest.yaml")); !strings.Contains(got, "layered") {
+		t.Fatalf("pull manifest = %q, want layered source recorded", got)
+	}
+}
+
+func TestPullConflicts(t *testing.T) {
+	root := t.TempDir()
+	writeLayeredFile(t, root, "AGENTS.md", "user edits\n")
+	writeLayeredFile(t, root, "CLAUDE.md", "clean render\n")
+	writeLayeredFile(t, root, ".claude/skills/deploy.md", "user notes\n")
+	local := &usecase.SyncResult{Targets: []usecase.TargetResult{
+		{Target: "codex", Files: []usecase.FileResult{
+			{Path: "AGENTS.md", Status: usecase.StatusWouldWrite},
+		}},
+		{Target: "claude", Files: []usecase.FileResult{
+			{Path: "CLAUDE.md", Status: usecase.StatusSkipped},
+		}},
+	}}
+	incoming := &usecase.SyncResult{Targets: []usecase.TargetResult{
+		{Target: "codex", Files: []usecase.FileResult{
+			{Path: "AGENTS.md", Status: usecase.StatusWouldWrite},
+			{Path: "FRESH.md", Status: usecase.StatusWouldWrite},
+		}},
+		{Target: "claude", Files: []usecase.FileResult{
+			{Path: "CLAUDE.md", Status: usecase.StatusWouldWrite},
+			{Path: ".claude/skills/deploy.md", Status: usecase.StatusWouldWrite},
+			{Path: "GEMINI.md", Status: usecase.StatusSkipped},
+		}},
+	}}
+
+	got := pullConflicts(root, local, incoming)
+	want := ".claude/skills/deploy.md|AGENTS.md"
+	if strings.Join(got, "|") != want {
+		t.Fatalf("pullConflicts() = %q, want %q (emitted+modified conflicts, emitted+clean updates, absent files and non-writes do not)", strings.Join(got, "|"), want)
 	}
 }
 
