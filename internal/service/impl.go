@@ -468,12 +468,22 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 	return &copy
 }
 
+// pullConflicts lists files an incoming pull would overwrite where local
+// content deserves protection: files the local render also produces but
+// would rewrite (drifted since the last sync), and pre-existing files the
+// local render never produces at all, which pull does not own. Files the
+// local render produces unchanged are deliberately absent — incoming
+// rewrites of those are the normal shared-layer update — and would-write
+// targets with nothing on disk are creations, not overwrites.
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
+	localRendered := map[string]bool{}
 	localChanges := map[string]bool{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
+			key := target.Target + "\x00" + file.Path
+			localRendered[key] = true
 			if file.Status == usecase.StatusWouldWrite {
-				localChanges[target.Target+"\x00"+file.Path] = true
+				localChanges[key] = true
 			}
 		}
 	}
@@ -481,7 +491,10 @@ func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
 			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+			if file.Status != usecase.StatusWouldWrite {
+				continue
+			}
+			if localRendered[key] && !localChanges[key] {
 				continue
 			}
 			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {
