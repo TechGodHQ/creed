@@ -381,7 +381,7 @@ func (s *Implementation) Pull(ctx context.Context, opts usecase.PullOptions) (*u
 	}
 	if !opts.Force && localPreview != nil {
 		if conflicts := pullConflicts(s.root, localPreview, preview); len(conflicts) > 0 {
-			return nil, fmt.Errorf("pull would overwrite locally modified emitted files; rerun with --force: %s", strings.Join(conflicts, ", "))
+			return nil, fmt.Errorf("pull would overwrite files that are locally modified or were never emitted by the local source; rerun with --force: %s", strings.Join(conflicts, ", "))
 		}
 	}
 	if changed {
@@ -468,12 +468,21 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 	return &copy
 }
 
+// pullConflicts lists output paths that a pull would overwrite even though
+// their on-disk content is not a clean product of the local source. A path
+// conflicts when the incoming render would write it, the file already exists
+// on disk, and either the local render would also rewrite it (a locally
+// emitted file carrying local modifications) or the local render never
+// emitted the path at all, so nothing vouches for the on-disk content.
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
-	localChanges := map[string]bool{}
+	localEmitted := map[string]bool{}
+	localModified := map[string]bool{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
+			key := target.Target + "\x00" + file.Path
+			localEmitted[key] = true
 			if file.Status == usecase.StatusWouldWrite {
-				localChanges[target.Target+"\x00"+file.Path] = true
+				localModified[key] = true
 			}
 		}
 	}
@@ -481,10 +490,13 @@ func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
 			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+			if file.Status != usecase.StatusWouldWrite {
 				continue
 			}
-			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {
+			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err != nil {
+				continue
+			}
+			if localModified[key] || !localEmitted[key] {
 				conflicts = append(conflicts, file.Path)
 			}
 		}

@@ -6,6 +6,13 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `creed pull` now refuses to overwrite pre-existing output files that the
+  local source never emitted (for example a skill added by a shared layer
+  landing on a hand-managed path), not just locally modified emitted files.
+  Rerun with `--force` to overwrite them.
+
 ## [0.4.1] — 2026-08-27
 
 Corrective release for the layered-context feature shipped in v0.4.0. The
