@@ -6,6 +6,12 @@ adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `creed pull` conflict errors now name both protected classes — files that
+  are locally modified and files the local source never emitted — instead of
+  claiming every conflict is a locally modified emitted file.
+
 ## [0.5.0] — pending publication
 
 ### Added
