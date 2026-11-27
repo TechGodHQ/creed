@@ -381,7 +381,7 @@ func (s *Implementation) Pull(ctx context.Context, opts usecase.PullOptions) (*u
 	}
 	if !opts.Force && localPreview != nil {
 		if conflicts := pullConflicts(s.root, localPreview, preview); len(conflicts) > 0 {
-			return nil, fmt.Errorf("pull would overwrite locally modified emitted files; rerun with --force: %s", strings.Join(conflicts, ", "))
+			return nil, fmt.Errorf("pull would overwrite existing local files; rerun with --force: %s", strings.Join(conflicts, ", "))
 		}
 	}
 	if changed {
@@ -468,23 +468,34 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 	return &copy
 }
 
+// pullConflicts lists incoming write paths that would overwrite local
+// content: the path exists on disk and either drifted from the local render
+// or was never emitted by the local render at all. Paths the local render
+// emitted unchanged are not conflicts, so remote updates to them land
+// normally; paths with nothing on disk are creations, not overwrites.
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
 	localChanges := map[string]bool{}
+	localEmitted := map[string]bool{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
+			key := target.Target + "\x00" + file.Path
+			localEmitted[key] = true
 			if file.Status == usecase.StatusWouldWrite {
-				localChanges[target.Target+"\x00"+file.Path] = true
+				localChanges[key] = true
 			}
 		}
 	}
 	conflicts := []string{}
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
-			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+			if file.Status != usecase.StatusWouldWrite {
 				continue
 			}
-			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {
+			key := target.Target + "\x00" + file.Path
+			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err != nil {
+				continue
+			}
+			if localChanges[key] || !localEmitted[key] {
 				conflicts = append(conflicts, file.Path)
 			}
 		}

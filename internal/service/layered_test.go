@@ -406,6 +406,99 @@ config:
 	}
 }
 
+func TestPullRefusesPreexistingOutputNotEmittedLocally(t *testing.T) {
+	remote := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Incoming rules\n"})
+	root := t.TempDir()
+	writeLayeredFile(t, root, ".creed/manifest.yaml", `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+`)
+	writeLayeredFile(t, root, "AGENTS.md", "# User notes\n")
+	manifestPath := filepath.Join(root, ".creed", "manifest.yaml")
+	beforeManifest := mustRead(t, manifestPath)
+
+	_, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote})
+	if err == nil || !strings.Contains(err.Error(), "AGENTS.md") {
+		t.Fatalf("pull error = %v, want listed AGENTS.md conflict", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); got != "# User notes\n" {
+		t.Fatalf("refused pull overwrote pre-existing output: %q", got)
+	}
+	if got := mustRead(t, manifestPath); got != beforeManifest {
+		t.Fatalf("refused pull wrote manifest: %q", got)
+	}
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote, Force: true}); err != nil {
+		t.Fatalf("forced pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Incoming rules") {
+		t.Fatalf("forced pull output = %q, want incoming content", got)
+	}
+	if got := mustRead(t, manifestPath); !strings.Contains(got, "type: layered") {
+		t.Fatalf("forced pull manifest = %q, want layered source", got)
+	}
+}
+
+func TestPullUpdatesCleanEmittedOutputWithoutForce(t *testing.T) {
+	remote := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Org rules\n"})
+	root := t.TempDir()
+	writeLayeredFile(t, root, ".creed/manifest.yaml", `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`)
+	writeLayeredFile(t, root, ".creed/config/repo.md", "# Repo rules\n")
+
+	if _, err := New(root).Sync(context.Background(), usecase.SyncOptions{}); err != nil {
+		t.Fatalf("local sync: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Repo rules") {
+		t.Fatalf("local sync output = %q, want repo content", got)
+	}
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remote}); err != nil {
+		t.Fatalf("pull over clean emitted output: %v", err)
+	}
+	content := mustRead(t, filepath.Join(root, "AGENTS.md"))
+	if !strings.Contains(content, "# Org rules") || !strings.Contains(content, "# Repo rules") {
+		t.Fatalf("pulled AGENTS.md = %q, want both layers", content)
+	}
+}
+
 func newLayeredRemote(t *testing.T, manifest string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
