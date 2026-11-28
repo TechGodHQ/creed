@@ -89,6 +89,57 @@ func TestEmitPathsFromOutputsDerivesOrderedPaths(t *testing.T) {
 	}
 }
 
+func TestPullConflictsProtectsPreExistingFiles(t *testing.T) {
+	root := t.TempDir()
+	if err := os.WriteFile(filepath.Join(root, "AGENTS.md"), []byte("on disk\n"), 0644); err != nil {
+		t.Fatal(err)
+	}
+	local := func(status string) *usecase.SyncResult {
+		return &usecase.SyncResult{Targets: []usecase.TargetResult{
+			{Target: "codex", Files: []usecase.FileResult{
+				{Path: "AGENTS.md", Status: status},
+			}},
+		}}
+	}
+	incoming := &usecase.SyncResult{Targets: []usecase.TargetResult{
+		{Target: "codex", Files: []usecase.FileResult{
+			{Path: "AGENTS.md", Status: usecase.StatusWouldWrite},
+		}},
+	}}
+
+	// The local render would modify the file: the on-disk content is not what
+	// a local sync emits, so pull must refuse.
+	if got := pullConflicts(root, local(usecase.StatusWouldWrite), incoming); len(got) != 1 || got[0] != "AGENTS.md" {
+		t.Fatalf("pullConflicts(locally modified) = %v, want [AGENTS.md]", got)
+	}
+	// The local render produces the file unchanged: the on-disk content equals
+	// the local render, so overwriting it loses nothing.
+	if got := pullConflicts(root, local(usecase.StatusSkipped), incoming); len(got) != 0 {
+		t.Fatalf("pullConflicts(locally unchanged) = %v, want no conflicts", got)
+	}
+	// No local render produced the file at all: the pre-existing on-disk file
+	// is still local state and must be protected from silent overwrite.
+	if got := pullConflicts(root, &usecase.SyncResult{}, incoming); len(got) != 1 || got[0] != "AGENTS.md" {
+		t.Fatalf("pullConflicts(not locally produced) = %v, want [AGENTS.md]", got)
+	}
+	// The incoming render leaving the file unchanged is never a conflict.
+	incomingSkipped := &usecase.SyncResult{Targets: []usecase.TargetResult{
+		{Target: "codex", Files: []usecase.FileResult{
+			{Path: "AGENTS.md", Status: usecase.StatusSkipped},
+		}},
+	}}
+	if got := pullConflicts(root, &usecase.SyncResult{}, incomingSkipped); len(got) != 0 {
+		t.Fatalf("pullConflicts(incoming unchanged) = %v, want no conflicts", got)
+	}
+	// A missing file is a fresh write, not a conflict.
+	if err := os.Remove(filepath.Join(root, "AGENTS.md")); err != nil {
+		t.Fatal(err)
+	}
+	if got := pullConflicts(root, &usecase.SyncResult{}, incoming); len(got) != 0 {
+		t.Fatalf("pullConflicts(missing file) = %v, want no conflicts", got)
+	}
+}
+
 func TestListTargetsExposesStructuredOutputDescriptors(t *testing.T) {
 	root := t.TempDir()
 	svc := New(root)

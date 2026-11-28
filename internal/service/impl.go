@@ -468,20 +468,35 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 	return &copy
 }
 
+// pullConflicts returns the paths pull would overwrite with content that is
+// not reproducible from the local source. A path conflicts when the file
+// already exists on disk and either the local render would modify it or the
+// local render does not produce it at all: in both cases the on-disk content
+// is not what a local sync emits, so pull refuses instead of silently
+// replacing it. A file the local render produces unchanged is safe to
+// overwrite, and a missing file is a fresh write; --force overrides all
+// conflicts.
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
-	localChanges := map[string]bool{}
+	localWrites := map[string]bool{}
+	localProduced := map[string]bool{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
 			if file.Status == usecase.StatusWouldWrite {
-				localChanges[target.Target+"\x00"+file.Path] = true
+				localWrites[target.Target+"\x00"+file.Path] = true
 			}
+			localProduced[file.Path] = true
 		}
 	}
 	conflicts := []string{}
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
-			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+			if file.Status != usecase.StatusWouldWrite {
+				continue
+			}
+			if !localWrites[target.Target+"\x00"+file.Path] && localProduced[file.Path] {
+				// The local render produces this path and leaves it
+				// unchanged, so the on-disk content is exactly what a local
+				// sync emits and overwriting it loses nothing local.
 				continue
 			}
 			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {

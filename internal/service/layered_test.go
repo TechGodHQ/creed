@@ -406,6 +406,86 @@ config:
 	}
 }
 
+func TestPullRefusesToOverwriteFileLocalRenderDoesNotProduce(t *testing.T) {
+	// The previous org layer declares no targets, so the local render produces
+	// nothing; the incoming org layer adds codex, whose AGENTS.md already
+	// exists on disk with local content.
+	manifestA := `version: 1
+source:
+  type: local
+  path: .creed
+config:
+  - name: org
+    path: config/org.md
+`
+	remoteA := newLayeredRemote(t, manifestA, map[string]string{".creed/config/org.md": "# Org A rules\n"})
+	remoteB := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Incoming rules\n"})
+	root := newLayeredConsumer(t, remoteA, ``, map[string]string{
+		"AGENTS.md": "# User notes\n",
+	})
+
+	_, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB})
+	if err == nil || !strings.Contains(err.Error(), "AGENTS.md") {
+		t.Fatalf("pull error = %v, want AGENTS.md conflict for a file the local render does not produce", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); got != "# User notes\n" {
+		t.Fatalf("refused pull overwrote unproduced output: %q", got)
+	}
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB, Force: true}); err != nil {
+		t.Fatalf("forced pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Incoming rules") {
+		t.Fatalf("forced pull output = %q, want incoming content", got)
+	}
+}
+
+func TestPullOverwritesOutputLocalRenderLeavesUnchanged(t *testing.T) {
+	manifest := `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`
+	remoteA := newLayeredRemote(t, manifest, map[string]string{".creed/config/org.md": "# Org A rules\n"})
+	remoteB := newLayeredRemote(t, manifest, map[string]string{".creed/config/org.md": "# Org B rules\n"})
+	root := newLayeredConsumer(t, remoteA, `targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`, map[string]string{
+		".creed/config/repo.md": "# Repo rules\n",
+		"AGENTS.md":             "# Org A rules\n\n---\n\n# Repo rules\n",
+	})
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB}); err != nil {
+		t.Fatalf("pull over locally unchanged output: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Org B rules") || !strings.Contains(got, "# Repo rules") {
+		t.Fatalf("pulled AGENTS.md = %q, want incoming org layer with local repo layer", got)
+	}
+}
+
 func newLayeredRemote(t *testing.T, manifest string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()
