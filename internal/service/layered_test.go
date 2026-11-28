@@ -459,6 +459,77 @@ config:
 	}
 }
 
+// This covers replacing an existing org layer with a remote that introduces a
+// target path already occupied by a user file but not emitted by the old layer.
+func TestPullProtectsUserFileWhenReplacingOrgLayerIntroducesOutput(t *testing.T) {
+	remoteA := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Org rules\n"})
+	remoteB := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+config:
+  - name: org
+    path: config/org.md
+skills:
+  - name: notes
+    path: skills/notes.md
+`, map[string]string{
+		".creed/config/org.md":   "# Org rules v2\n",
+		".creed/skills/notes.md": "---\nname: notes\ndescription: Shared notes skill.\n---\n\n# Org notes skill\n",
+	})
+	root := newLayeredConsumer(t, remoteA, `targets:
+  - name: codex
+    enabled: true
+    output_dir: .
+  - name: cursor
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`, map[string]string{
+		".creed/config/repo.md":  "# Repo rules\n",
+		"AGENTS.md":              "# Org rules\n\n---\n\n# Repo rules\n",
+		".cursor/rules/notes.md": "# User notes\n",
+	})
+	manifestPath := filepath.Join(root, ".creed", "manifest.yaml")
+	beforeManifest := mustRead(t, manifestPath)
+
+	_, err := New(root, WithCacheDir(filepath.Join(t.TempDir(), "cache"))).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB})
+	if err == nil || !strings.Contains(err.Error(), ".cursor/rules/notes.md") {
+		t.Fatalf("pull error = %v, want listed .cursor/rules/notes.md conflict", err)
+	}
+	if strings.Contains(err.Error(), "AGENTS.md") {
+		t.Fatalf("pull error = %v, want emitted-and-unchanged AGENTS.md exempt from conflicts", err)
+	}
+	if got := mustRead(t, filepath.Join(root, ".cursor/rules", "notes.md")); got != "# User notes\n" {
+		t.Fatalf("refused pull overwrote unrendered file: %q", got)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); got != "# Org rules\n\n---\n\n# Repo rules\n" {
+		t.Fatalf("refused pull modified output: %q", got)
+	}
+	if got := mustRead(t, manifestPath); got != beforeManifest {
+		t.Fatalf("refused pull wrote manifest: %q", got)
+	}
+
+	if _, err := New(root, WithCacheDir(filepath.Join(t.TempDir(), "cache"))).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB, Force: true}); err != nil {
+		t.Fatalf("forced pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "AGENTS.md")); !strings.Contains(got, "# Org rules v2") || !strings.Contains(got, "# Repo rules") {
+		t.Fatalf("forced pull AGENTS.md = %q, want incoming layer update composed with local layer", got)
+	}
+	if got := mustRead(t, filepath.Join(root, ".cursor/rules/notes.md")); !strings.Contains(got, "# Org notes skill") {
+		t.Fatalf("forced pull .cursor/rules/notes.md = %q, want org skill content", got)
+	}
+}
+
 func TestPullUpdatesCleanLocallyEmittedFileWithoutConflict(t *testing.T) {
 	remote := newLayeredRemote(t, `version: 1
 source:
