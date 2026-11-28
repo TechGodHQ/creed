@@ -468,23 +468,35 @@ func cloneManifest(manifest *domain.Manifest) *domain.Manifest {
 	return &copy
 }
 
+// pullConflicts lists incoming output paths that would overwrite an existing
+// on-disk file the local source does not faithfully reproduce. It protects
+// both files the local run itself would change and pre-existing files the
+// local run never emitted at all; only paths the local run emitted and left
+// byte-identical are treated as safe to replace.
 func pullConflicts(root string, local, incoming *usecase.SyncResult) []string {
-	localChanges := map[string]bool{}
+	localUnchanged := map[string]bool{}
 	for _, target := range local.Targets {
 		for _, file := range target.Files {
-			if file.Status == usecase.StatusWouldWrite {
-				localChanges[target.Target+"\x00"+file.Path] = true
+			if file.Status == usecase.StatusSkipped {
+				localUnchanged[target.Target+"\x00"+file.Path] = true
 			}
 		}
 	}
+	seen := map[string]bool{}
 	conflicts := []string{}
 	for _, target := range incoming.Targets {
 		for _, file := range target.Files {
-			key := target.Target + "\x00" + file.Path
-			if file.Status != usecase.StatusWouldWrite || !localChanges[key] {
+			if file.Status != usecase.StatusWouldWrite {
+				continue
+			}
+			if localUnchanged[target.Target+"\x00"+file.Path] {
+				continue
+			}
+			if seen[file.Path] {
 				continue
 			}
 			if _, err := os.ReadFile(filepath.Join(root, filepath.FromSlash(file.Path))); err == nil {
+				seen[file.Path] = true
 				conflicts = append(conflicts, file.Path)
 			}
 		}

@@ -406,6 +406,124 @@ config:
 	}
 }
 
+func TestPullRefusesPreExistingOutputLocalRunNeverEmitted(t *testing.T) {
+	remoteA := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Org rules\n"})
+	remoteB := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+skills:
+  - name: deploy
+    path: skills/deploy.md
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{
+		".creed/config/org.md":    "# Org rules\n",
+		".creed/skills/deploy.md": "# Deploy\n",
+	})
+	root := newLayeredConsumer(t, remoteA, `targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`, map[string]string{
+		".creed/config/repo.md":    "# Local rules\n",
+		".claude/skills/deploy.md": "# Hand written notes\n",
+	})
+	manifestPath := filepath.Join(root, ".creed", "manifest.yaml")
+	beforeManifest := mustRead(t, manifestPath)
+
+	// The local source (remoteA) emits no skill file, so deploy.md is a
+	// pre-existing user file from the local run's perspective. Pulling
+	// remoteB must not silently replace it.
+	_, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB})
+	if err == nil || !strings.Contains(err.Error(), ".claude/skills/deploy.md") {
+		t.Fatalf("pull error = %v, want listed .claude/skills/deploy.md conflict", err)
+	}
+	if got := mustRead(t, filepath.Join(root, ".claude", "skills", "deploy.md")); got != "# Hand written notes\n" {
+		t.Fatalf("refused pull overwrote unemitted output: %q", got)
+	}
+	if got := mustRead(t, manifestPath); got != beforeManifest {
+		t.Fatalf("refused pull wrote manifest: %q", got)
+	}
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB, Force: true}); err != nil {
+		t.Fatalf("forced pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, ".claude", "skills", "deploy.md")); got != "# Deploy\n" {
+		t.Fatalf("forced pull output = %q, want incoming skill content", got)
+	}
+	if got := mustRead(t, manifestPath); !strings.Contains(got, remoteB) {
+		t.Fatalf("forced pull manifest = %q, want remoteB layer", got)
+	}
+}
+
+func TestPullReplacesOutputLocalRunLeftUnchanged(t *testing.T) {
+	remoteA := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# Org rules\n"})
+	root := newLayeredConsumer(t, remoteA, `targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: repo
+    path: config/repo.md
+`, map[string]string{".creed/config/repo.md": "# Local rules\n"})
+	if _, err := New(root).Sync(context.Background(), usecase.SyncOptions{}); err != nil {
+		t.Fatalf("initial sync: %v", err)
+	}
+
+	// remoteB changes the org content, so the incoming render differs from
+	// the on-disk file the local source reproduces exactly.
+	remoteB := newLayeredRemote(t, `version: 1
+source:
+  type: local
+  path: .creed
+targets:
+  - name: claude
+    enabled: true
+    output_dir: .
+config:
+  - name: org
+    path: config/org.md
+`, map[string]string{".creed/config/org.md": "# New org rules\n"})
+
+	if _, err := New(root).Pull(context.Background(), usecase.PullOptions{RemoteURL: remoteB}); err != nil {
+		t.Fatalf("pull: %v", err)
+	}
+	if got := mustRead(t, filepath.Join(root, "CLAUDE.md")); !strings.Contains(got, "# New org rules") {
+		t.Fatalf("pull output = %q, want incoming content", got)
+	}
+}
+
 func newLayeredRemote(t *testing.T, manifest string, files map[string]string) string {
 	t.Helper()
 	root := t.TempDir()

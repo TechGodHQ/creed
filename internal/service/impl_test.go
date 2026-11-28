@@ -1196,3 +1196,36 @@ config: []
 		})
 	}
 }
+
+func TestPullConflictsProtectsPreExistingFiles(t *testing.T) {
+	root := t.TempDir()
+	for _, rel := range []string{"CLAUDE.md", "notes.md", ".claude/skills/deploy.md"} {
+		path := filepath.Join(root, filepath.FromSlash(rel))
+		if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, []byte("user content\n"), 0644); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	preview := func(files ...usecase.FileResult) *usecase.SyncResult {
+		return &usecase.SyncResult{Targets: []usecase.TargetResult{{Target: "claude", Files: files}}}
+	}
+	local := preview(
+		usecase.FileResult{Path: "CLAUDE.md", Status: usecase.StatusSkipped},
+		usecase.FileResult{Path: "notes.md", Status: usecase.StatusWouldWrite},
+	)
+	incoming := preview(
+		usecase.FileResult{Path: "CLAUDE.md", Status: usecase.StatusWouldWrite},
+		usecase.FileResult{Path: "notes.md", Status: usecase.StatusWouldWrite},
+		usecase.FileResult{Path: ".claude/skills/deploy.md", Status: usecase.StatusWouldWrite},
+		usecase.FileResult{Path: "absent.md", Status: usecase.StatusWouldWrite},
+	)
+
+	got := pullConflicts(root, local, incoming)
+	want := []string{".claude/skills/deploy.md", "notes.md"}
+	if strings.Join(got, ",") != strings.Join(want, ",") {
+		t.Fatalf("pullConflicts() = %#v, want %#v", got, want)
+	}
+}
